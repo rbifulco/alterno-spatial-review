@@ -1,0 +1,63 @@
+name: Bug report
+description: Report reproducible incorrect behavior in a package or contract
+title: "fix: "
+labels: ["type: bug", "status: needs triage"]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for helping improve Alterno Spatial Review. For sensitive security issues, use the private vulnerability-reporting process instead.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Protocol or schema
+        - SDK or adapter
+        - Validator
+        - CLI
+        - Documentation or examples
+        - Not sure
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Package version, commit, or source checkout used
+      placeholder: "@alterno-dev/spatial-review@0.1.0"
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the incorrect behavior and its impact.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: Include code, a small manifest or scene payload, and exact steps. Remove secrets and private URLs.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Node.js, browser, operating system, framework, and hosting environment when relevant
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I searched existing issues for the same problem.
+          required: true
+        - label: This report contains no credentials, private data, or undisclosed vulnerability details.
+          required: true

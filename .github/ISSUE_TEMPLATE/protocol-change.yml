@@ -1,0 +1,66 @@
+name: Protocol change
+description: Propose a change to schemas, discovery, transports, or interoperable behavior
+title: "feat(protocol): "
+labels: ["area: protocol", "type: proposal", "status: needs triage"]
+body:
+  - type: markdown
+    attributes:
+      value: Read `docs/governance/protocol-changes.md` first. A proposal must be accepted before implementation is merged.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Interoperability problem
+      description: Explain the concrete producer/consumer problem and why an implementation-only change cannot solve it.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed contract
+      description: Define exact fields, behavior, capability negotiation, and validation rules.
+    validations:
+      required: true
+  - type: textarea
+    id: examples
+    attributes:
+      label: Producer and consumer examples
+      description: Include representative JSON and describe expected consumer behavior.
+    validations:
+      required: true
+  - type: dropdown
+    id: compatibility
+    attributes:
+      label: Compatibility impact
+      options:
+        - Additive and optional
+        - Behavior clarification only
+        - Deprecation
+        - Breaking change
+        - Unsure
+    validations:
+      required: true
+  - type: textarea
+    id: migration
+    attributes:
+      label: Migration and mixed-version behavior
+      description: Explain old producer/new consumer and new producer/old consumer behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: security
+    attributes:
+      label: Security, privacy, and performance
+      description: Address URL loading, origins, untrusted data, resource limits, and other relevant consequences.
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I read the protocol-change process.
+          required: true
+        - label: I searched existing issues and proposals.
+          required: true
+        - label: I have not treated an open proposal as accepted.
+          required: true

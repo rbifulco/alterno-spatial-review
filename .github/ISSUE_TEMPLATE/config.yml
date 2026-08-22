@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and design discussion
+    url: https://github.com/rbifulco/alterno-spatial-review/discussions
+    about: Ask for integration help or explore an idea before proposing it.
+  - name: Security vulnerability
+    url: https://github.com/rbifulco/alterno-spatial-review/security/policy
+    about: Read the private vulnerability-reporting instructions. Do not disclose vulnerabilities publicly.

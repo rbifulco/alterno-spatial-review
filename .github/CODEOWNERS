@@ -1,0 +1,9 @@
+# Default maintainer
+* @rbifulco
+
+# Interoperability and release boundaries
+/schemas/ @rbifulco
+/packages/protocol/ @rbifulco
+/docs/governance/ @rbifulco
+/.github/workflows/ @rbifulco
+/.changeset/ @rbifulco

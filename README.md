@@ -136,10 +136,19 @@ explains these choices in depth.
 ## Development
 
 ```sh
-npm install
+npm ci
 npm test
 npm run pack:check
 ```
+
+Contributions are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) for setup,
+commit, pull-request, and Changesets guidance. Changes to schemas or shared
+interoperable behavior follow the
+[protocol-change process](docs/governance/protocol-changes.md).
+
+- [Ask a question or explore an idea](https://github.com/rbifulco/alterno-spatial-review/discussions)
+- [Report a bug or propose a feature](https://github.com/rbifulco/alterno-spatial-review/issues)
+- [Report a vulnerability privately](SECURITY.md)
 
 ## License
 

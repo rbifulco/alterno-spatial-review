@@ -5,13 +5,21 @@
   "description": "Open protocol, SDK, validators, adapters, and conformance tests for Alterno Spatial Review.",
   "license": "MIT",
   "type": "module",
+  "engines": {
+    "node": "^22.11 || ^24"
+  },
   "workspaces": ["packages/*"],
   "scripts": {
     "build": "npm run build -w @alterno-dev/spatial-review-protocol && npm run build -w @alterno-dev/spatial-review && npm run build -w @alterno-dev/spatial-review-validator && npm run build -w @alterno-dev/spatial-review-cli",
     "test": "npm run build && node --test tests/*.test.mjs",
-    "pack:check": "npm pack --dry-run -w @alterno-dev/spatial-review-protocol && npm pack --dry-run -w @alterno-dev/spatial-review && npm pack --dry-run -w @alterno-dev/spatial-review-validator && npm pack --dry-run -w @alterno-dev/spatial-review-cli"
+    "pack:check": "npm pack --dry-run -w @alterno-dev/spatial-review-protocol && npm pack --dry-run -w @alterno-dev/spatial-review && npm pack --dry-run -w @alterno-dev/spatial-review-validator && npm pack --dry-run -w @alterno-dev/spatial-review-cli",
+    "changeset": "changeset",
+    "changeset:status": "changeset status",
+    "version-packages": "changeset version",
+    "release": "npm run build && changeset publish"
   },
   "devDependencies": {
+    "@changesets/cli": "^3.0.1",
     "@types/node": "^22.19.0",
     "typescript": "^5.9.3"
   }
