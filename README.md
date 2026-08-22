@@ -34,9 +34,29 @@ exposes only the objects that should participate in review.
 
 ## Quick start
 
+`npm` registry installation:
+
 ```sh
 npm install @alterno-dev/spatial-review three
 ```
+
+Installation from a local checkout:
+
+```sh
+git clone https://github.com/rbifulco/alterno-spatial-review.git
+cd alterno-spatial-review
+npm ci
+npm run build
+
+cd ../my-spatial-website
+npm install \
+  file:../alterno-spatial-review/packages/protocol \
+  file:../alterno-spatial-review/packages/sdk
+```
+
+The local packages export their compiled `dist` directories, so build the
+checkout before installing it. See [Install from source](docs/install-from-source.md)
+for active-development, vendored, CI, and update workflows.
 
 ```ts
 import {
@@ -110,6 +130,7 @@ explains these choices in depth.
 ## Guides
 
 - [Install with an AI coding agent](docs/install-with-ai.md)
+- [Install from source](docs/install-from-source.md)
 - [Website integration reference](docs/integrating-a-website.md)
 
 ## Development

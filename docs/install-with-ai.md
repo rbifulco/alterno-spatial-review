@@ -42,7 +42,10 @@ roots that the user sees.
 
 ## Step 2: install the SDK
 
-Retain the project's existing compatible Three.js version.
+Retain the project's existing compatible Three.js version. Choose exactly one
+of the following installation methods.
+
+### Option A: install the published package
 
 ```sh
 npm install @alterno-dev/spatial-review
@@ -56,6 +59,33 @@ npm install three @alterno-dev/spatial-review
 
 The SDK declares Three.js as a peer dependency so the application and
 integration use the same runtime.
+
+### Option B: install from source
+
+Use this option when the task requires auditing, modifying, or testing the SDK
+source alongside the website:
+
+```sh
+git clone https://github.com/rbifulco/alterno-spatial-review.git
+cd alterno-spatial-review
+npm ci
+npm test
+npm run build
+
+cd ../my-spatial-website
+npm install \
+  file:../alterno-spatial-review/packages/protocol \
+  file:../alterno-spatial-review/packages/sdk
+```
+
+Both local packages are required because the SDK imports the engine-neutral
+protocol package. Build the source checkout before installing it; package
+exports point to compiled `dist` files.
+
+Local `file:` dependencies are appropriate when the checkout will remain next
+to the website. For a portable repository or deployment, build tarballs from a
+pinned checkout and keep them inside the consuming project. Follow
+[Install from source](install-from-source.md) for that workflow.
 
 ## Step 3: create one integration module
 
