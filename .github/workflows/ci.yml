@@ -27,7 +27,7 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run pack:check
-      - run: npm run changeset:status
+      - run: npm run changeset:status -- --since=origin/main
 
   node-22:
     name: Node 22 compatibility
