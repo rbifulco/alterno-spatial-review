@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import * as THREE from "three";
-import { SceneAssetRegistry } from "../packages/sdk/dist/index.js";
+import { SceneAssetRegistry, buildThreeAsset, disposeThreeAsset } from "../packages/sdk/dist/index.js";
 import { SPATIAL_REVIEW_INDEX_SCHEMA, discoveryUrlForWebsite, normalizeSpatialReviewDiscovery } from "../packages/protocol/dist/index.js";
 import { validateAssetDocument, validateReviewIndex } from "../packages/validator/dist/index.js";
 
@@ -30,4 +30,23 @@ test("emits a legacy index only when explicitly requested", () => {
   const registry = new SceneAssetRegistry("legacy-fixture");
   registry.register({ actorId: "fixture", assetId: "fixture", name: "Fixture", category: "Test", sourceRef: "fixture.ts", root });
   assert.equal(registry.toReviewIndex("scene", true).schema, "sole-review-index/v1");
+});
+
+test("builds a Three.js hierarchy from the engine-neutral asset contract", () => {
+  const asset = {
+    id: "pavilion",
+    name: "Pavilion",
+    tags: [],
+    nodes: [
+      { id: "root", name: "Root", type: "group", position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1], visible: true, materialIds: [] },
+      { id: "deck", name: "Deck", type: "mesh", parentId: "root", position: [0, 0.2, 0], rotation: [0, 0, 0], scale: [1, 1, 1], visible: true, geometry: { kind: "primitive", primitive: "box", dimensions: [4, 0.4, 3] }, materialIds: ["concrete"] },
+    ],
+    materials: [{ id: "concrete", name: "Concrete", type: "standard", color: "#888078", roughness: 0.8, metalness: 0, opacity: 1, doubleSided: false }],
+    feedback: { status: "unreviewed", summary: "", annotations: [], modifications: [] },
+  };
+  const built = buildThreeAsset(asset);
+  assert.equal(built.root.name, "Pavilion");
+  assert.equal(built.nodes.get("deck")?.parent, built.nodes.get("root"));
+  assert.ok(built.nodes.get("deck") instanceof THREE.Mesh);
+  disposeThreeAsset(built.root);
 });
