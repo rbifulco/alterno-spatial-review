@@ -8,7 +8,7 @@ fixtures. The hosted editor is a separate, closed product.
 ## Packages
 
 - `@alterno-dev/spatial-review-protocol` — contracts, identifiers, and URL normalization.
-- `@alterno-dev/spatial-review` — Three.js registry, serializer, and cross-origin bridge.
+- `@alterno-dev/spatial-review` — Three.js registry, serializer, runtime builder, and cross-origin bridge.
 - `@alterno-dev/spatial-review-validator` — runtime validation for untrusted manifests.
 - `@alterno-dev/spatial-review-cli` — integration validation from a terminal or CI.
 
