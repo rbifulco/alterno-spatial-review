@@ -1,62 +1,67 @@
 # Alterno Spatial Review
 
-Give people a consistent, convenient way to review spatial experiences built
-with AI agents.
+[![CI](https://github.com/rbifulco/alterno-spatial-review/actions/workflows/ci.yml/badge.svg)](https://github.com/rbifulco/alterno-spatial-review/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/%40alterno-dev%2Fspatial-review?label=npm)](https://www.npmjs.com/package/@alterno-dev/spatial-review)
+[![License: MIT](https://img.shields.io/badge/license-MIT-0b7285.svg)](LICENSE)
 
-Spatial work is difficult to discuss through screenshots and prose alone.
-“Move that object,” “the entrance feels too narrow,” or “use this material on
-the upper volume” is useful only when the agent can identify the exact scene
-actor, asset component, transform, material, and source code involved.
+**Give people a precise way to review spatial experiences—and give AI coding
+agents feedback they can act on.**
 
-Alterno Spatial Review provides an open protocol and SDK for exposing that
-structure. A compatible review tool can present the scene at two useful scales:
+Alterno Spatial Review is an open protocol and TypeScript toolkit for exposing
+the meaningful structure behind a 3D website. Instead of receiving “move that
+object” beside a screenshot, an agent can receive the exact scene actor, asset
+component, transform, material, and source-code reference involved.
 
-- **Scene review** preserves placement, scale, visibility, layers, and spatial
-  relationships.
-- **Asset review** preserves a model's component hierarchy, geometry,
-  materials, textures, and component-local transforms.
+[Quick start](#quick-start) · [How it works](#how-it-works) ·
+[Packages](#packages) · [Guides](#guides) · [Contributing](#contributing)
 
-Feedback can therefore stay attached to stable IDs and source references instead
-of becoming an ambiguous list of visual notes.
+## Why spatial review needs structure
+
+Screenshots and prose flatten a 3D experience. Spatial Review keeps feedback
+connected to the structure that produced what the reviewer sees.
+
+| For reviewers | For AI agents | For website teams |
+| --- | --- | --- |
+| Comment on whole scenes or exact asset components. | Resolve feedback to stable IDs, transforms, materials, and source references. | Choose what is reviewable without exposing debug objects, secrets, or irrelevant internals. |
+
+The protocol is engine-neutral. The current SDK includes a first-class Three.js
+adapter for web experiences.
 
 ## How it works
 
-1. A website registers the meaningful Three.js roots in its scene.
-2. It publishes a small discovery document describing the available scene,
-   asset, and live-capture transports.
-3. A compatible review experience loads that structured presentation.
-4. The reviewer comments on the whole scene or on exact asset components.
-5. An AI coding agent receives feedback grounded in stable names, IDs,
-   transforms, materials, and source references.
+```mermaid
+flowchart LR
+    site["Spatial website"] -->|"discovery + scene data"| review["Review tool"]
+    review -->|"grounded feedback"| agent["AI coding agent"]
+    agent -->|"targeted code changes"| site
+```
 
-The protocol does not scrape an arbitrary WebGL canvas. The website deliberately
-exposes only the objects that should participate in review.
+1. A website registers the meaningful objects in its scene.
+2. It publishes a small discovery document describing its scene, assets, and
+   supported capture methods.
+3. A compatible review tool loads that structured presentation.
+4. The reviewer comments on the scene or on exact asset components.
+5. An AI coding agent receives feedback grounded in stable identifiers and
+   source references.
+
+| Review scale | What it preserves | Useful for |
+| --- | --- | --- |
+| **Scene review** | Placement, scale, visibility, layers, and spatial relationships | Composition, navigation, hierarchy, and context |
+| **Asset review** | Component hierarchy, geometry, materials, textures, and local transforms | Shape, construction, and material feedback |
+
+> [!IMPORTANT]
+> Spatial Review does not scrape an arbitrary WebGL canvas. The website opts in
+> and exposes only the objects that should participate in review.
 
 ## Quick start
 
-`npm` registry installation:
+### 1. Install the Three.js SDK
 
 ```sh
 npm install @alterno-dev/spatial-review three
 ```
 
-Installation from a local checkout:
-
-```sh
-git clone https://github.com/rbifulco/alterno-spatial-review.git
-cd alterno-spatial-review
-npm ci
-npm run build
-
-cd ../my-spatial-website
-npm install \
-  file:../alterno-spatial-review/packages/protocol \
-  file:../alterno-spatial-review/packages/sdk
-```
-
-The local packages export their compiled `dist` directories, so build the
-checkout before installing it. See [Install from source](docs/install-from-source.md)
-for active-development, vendored, CI, and update workflows.
+### 2. Register meaningful scene objects
 
 ```ts
 import {
@@ -77,11 +82,16 @@ registry.register({
 });
 
 attachSceneAssetRegistryBridge(registry, {
-  allowedOrigins: ["http://localhost:3000"],
+  allowedOrigins: ["http://localhost:3000", "https://review.example"],
 });
 ```
 
-Then publish `/.well-known/spatial-review.json`:
+Use the local review origin while developing, then replace
+`https://review.example` with the origin of the review tool you trust.
+
+### 3. Publish the discovery document
+
+Serve `/.well-known/spatial-review.json` from the website:
 
 ```json
 {
@@ -93,47 +103,82 @@ Then publish `/.well-known/spatial-review.json`:
 }
 ```
 
-For a complete implementation, including repeated assets, texture URLs,
-discovery manifests, origin configuration, and validation, follow the
-[step-by-step AI-agent installation guide](docs/install-with-ai.md).
+### 4. Validate the deployed integration
 
-## What makes feedback agent-friendly
+```sh
+npx @alterno-dev/spatial-review-cli validate https://project.example
+```
 
-A useful integration exposes design intent, not merely render data:
+> [!TIP]
+> Using an AI coding agent? Point it to the
+> [step-by-step installation guide](docs/install-with-ai.md). It includes the
+> required code, validation steps, and presentation rules for useful feedback.
 
-- Register one coherent, reviewable object per actor rather than the entire
-  world as a single asset.
+<details>
+<summary><strong>Install directly from source instead of npm</strong></summary>
+
+```sh
+git clone https://github.com/rbifulco/alterno-spatial-review.git
+cd alterno-spatial-review
+npm ci
+npm run build
+
+cd ../my-spatial-website
+npm install \
+  file:../alterno-spatial-review/packages/protocol \
+  file:../alterno-spatial-review/packages/sdk
+```
+
+The local packages export their compiled `dist` directories, so build the
+checkout before installing it. The [source-installation guide](docs/install-from-source.md)
+covers active development, vendoring, CI, and updates.
+
+</details>
+
+## Present scenes and assets for useful feedback
+
+A good integration exposes design intent, not merely render data:
+
+- Register one coherent, reviewable object per actor instead of the entire
+  world as one asset.
 - Give actors, assets, groups, meshes, and materials stable semantic names.
-- Use one `assetId` for repeated instances of the same canonical design and a
-  distinct `actorId` for each placement.
+- Use one `assetId` for repeated instances of the same design and a distinct
+  `actorId` for each placement.
 - Keep component hierarchy and child ordering stable so component identities
   survive rebuilds.
-- Set `sourceRef` to a durable code symbol or content path the agent can find.
-- Preserve public texture URLs so material feedback is shown in context.
-- Include context needed to judge composition, but exclude helpers, debug
+- Set `sourceRef` to a durable code symbol or content path an agent can find.
+- Preserve public texture URLs so material feedback appears in context.
+- Include enough context to judge composition, but exclude helpers, debug
   meshes, secrets, and irrelevant implementation detail.
 
-The [agent installation guide](docs/install-with-ai.md#present-scenes-and-assets-for-effective-review)
-explains these choices in depth.
+Read [Present scenes and assets for effective review](docs/install-with-ai.md#present-scenes-and-assets-for-effective-review)
+for detailed patterns and examples.
 
 ## Packages
 
-- `@alterno-dev/spatial-review-protocol` — engine-neutral contracts,
-  identifiers, types, and URL normalization.
-- `@alterno-dev/spatial-review` — Three.js registry, serializer, runtime
-  builder, and exact-origin browser bridge.
-- `@alterno-dev/spatial-review-validator` — runtime validation for discovery,
-  asset, and review-index documents.
-- `@alterno-dev/spatial-review-cli` — integration validation from a terminal
-  or CI.
+| Package | Purpose |
+| --- | --- |
+| [`@alterno-dev/spatial-review-protocol`](https://www.npmjs.com/package/@alterno-dev/spatial-review-protocol) | Engine-neutral contracts, identifiers, types, and URL normalization |
+| [`@alterno-dev/spatial-review`](https://www.npmjs.com/package/@alterno-dev/spatial-review) | Three.js registry, serializer, runtime builder, and exact-origin browser bridge |
+| [`@alterno-dev/spatial-review-validator`](https://www.npmjs.com/package/@alterno-dev/spatial-review-validator) | Runtime validation for discovery, asset, and review-index documents |
+| [`@alterno-dev/spatial-review-cli`](https://www.npmjs.com/package/@alterno-dev/spatial-review-cli) | Integration validation from a terminal or CI |
+
+The packages are versioned together as one compatible toolset.
 
 ## Guides
 
-- [Install with an AI coding agent](docs/install-with-ai.md)
-- [Install from source](docs/install-from-source.md)
-- [Website integration reference](docs/integrating-a-website.md)
+| Goal | Guide |
+| --- | --- |
+| Ask an AI agent to integrate a website | [Install with an AI coding agent](docs/install-with-ai.md) |
+| Develop against a local checkout | [Install from source](docs/install-from-source.md) |
+| Understand manifests, origins, and capture | [Website integration reference](docs/integrating-a-website.md) |
+| Propose an interoperable contract change | [Protocol change process](docs/governance/protocol-changes.md) |
+| Prepare and publish a release | [Maintainer release process](docs/governance/releases.md) |
 
-## Development
+## Contributing
+
+Contributions to the protocol, SDK, validators, CLI, examples, and
+documentation are welcome.
 
 ```sh
 npm ci
@@ -141,10 +186,8 @@ npm test
 npm run pack:check
 ```
 
-Contributions are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) for setup,
-commit, pull-request, and Changesets guidance. Changes to schemas or shared
-interoperable behavior follow the
-[protocol-change process](docs/governance/protocol-changes.md).
+Read [CONTRIBUTING.md](CONTRIBUTING.md) for the complete commit, pull-request,
+testing, and Changesets workflow.
 
 - [Ask a question or explore an idea](https://github.com/rbifulco/alterno-spatial-review/discussions)
 - [Report a bug or propose a feature](https://github.com/rbifulco/alterno-spatial-review/issues)
@@ -152,4 +195,4 @@ interoperable behavior follow the
 
 ## License
 
-MIT
+[MIT](LICENSE)
