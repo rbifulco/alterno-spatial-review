@@ -246,12 +246,13 @@ name is available. Avoid rebuilding a hierarchy from unordered object keys.
 Stable structure is what allows feedback such as “raise the rainwater channel
 by 8 cm” to remain addressable after another build.
 
-## Step 7: preserve texture source URLs
+## Step 7: preserve texture sources
 
 Asset review is much more useful when the presented material matches the
 website. The serializer recognizes normal decoded image URLs. Explicitly
-annotate textures when they were cloned, created through a custom loader,
-backed by a canvas, or otherwise lose their public source.
+annotate URL-backed textures when they were cloned, created through a custom
+loader, or otherwise lose their original source. Canvas and other generated
+textures can be transferred from their in-memory image data without a URL.
 
 ```ts
 const wallTextureUrl = new URL(
@@ -271,9 +272,15 @@ const wallMaterial = new THREE.MeshStandardMaterial({
 });
 ```
 
-Texture references must be public HTTP(S) raster resources if an external
-review tool needs to load them. Do not expose signed private URLs, data from an
-authenticated intranet, credentials, or local filesystem paths.
+The editor first tries a source URL directly when CORS permits it. If that is
+unavailable, it requests the registered texture through the live bridge and
+the SDK transfers encoded bytes with `postMessage`. A texture therefore does
+not need a public or CORS-enabled URL. Do not register textures that expose
+secrets or data the trusted review origin should not receive.
+
+The live catalog handshake negotiates the per-texture byte ceiling. The editor
+and SDK each advertise a maximum and both enforce the lower value; the SDK
+defaults to 16 MB.
 
 The review profile transfers color, emissive, roughness, metalness, opacity,
 double-sided state, supported texture slots, UV data, and texture transforms.

@@ -170,7 +170,8 @@ A good integration exposes design intent, not merely render data:
 - Keep component hierarchy and child ordering stable so component identities
   survive rebuilds.
 - Set `sourceRef` to a durable code symbol or content path an agent can find.
-- Preserve public texture URLs so material feedback appears in context.
+- Preserve texture source references when available. Live integrations can
+  transfer texture bytes over `postMessage`; public CORS access is optional.
 - Include enough context to judge composition, but exclude helpers, debug
   meshes, secrets, and irrelevant implementation detail.
 
