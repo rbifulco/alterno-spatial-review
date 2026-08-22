@@ -12,5 +12,5 @@
   "scripts": { "build": "tsc -p tsconfig.json" },
   "dependencies": { "@alterno-dev/spatial-review-protocol": "0.1.0" },
   "peerDependencies": { "three": ">=0.160.0 <1" },
-  "devDependencies": { "@types/three": "^0.180.0", "three": "^0.180.0" }
+  "devDependencies": { "@types/three": "^0.180.0", "three": "^0.185.1" }
 }
