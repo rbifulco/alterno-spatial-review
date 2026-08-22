@@ -34,5 +34,6 @@ jobs:
             schema
             examples
             docs
+            deps
             release
           requireScope: false
