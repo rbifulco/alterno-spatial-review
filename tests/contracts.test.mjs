@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import * as THREE from "three";
-import { SceneAssetRegistry, attachSceneAssetRegistryBridge, buildThreeAsset, disposeThreeAsset } from "../packages/sdk/dist/index.js";
-import { SPATIAL_REVIEW_CATALOG, SPATIAL_REVIEW_INDEX_SCHEMA, SPATIAL_REVIEW_REQUEST, SPATIAL_REVIEW_RESOURCE_REQUEST, SPATIAL_REVIEW_RESOURCE_RESPONSE, SPATIAL_REVIEW_RESOURCE_TRANSFER_CAPABILITY, discoveryUrlForWebsite, normalizeSpatialReviewDiscovery } from "../packages/protocol/dist/index.js";
+import { SceneAssetRegistry, attachSceneAssetRegistryBridge, attachSpatialReviewDiscoveryBridge, buildThreeAsset, disposeThreeAsset } from "../packages/sdk/dist/index.js";
+import { SPATIAL_REVIEW_CATALOG, SPATIAL_REVIEW_DISCOVERY_REQUEST, SPATIAL_REVIEW_DISCOVERY_RESPONSE, SPATIAL_REVIEW_INDEX_SCHEMA, SPATIAL_REVIEW_REQUEST, SPATIAL_REVIEW_RESOURCE_REQUEST, SPATIAL_REVIEW_RESOURCE_RESPONSE, SPATIAL_REVIEW_RESOURCE_TRANSFER_CAPABILITY, discoveryUrlForWebsite, normalizeSpatialReviewDiscovery } from "../packages/protocol/dist/index.js";
 import { validateAssetDocument, validateReviewIndex } from "../packages/validator/dist/index.js";
 
 test("normalizes discovery URLs", () => {
@@ -10,6 +10,46 @@ test("normalizes discovery URLs", () => {
   assert.equal(url, "https://example.com/.well-known/spatial-review.json");
   const discovery = normalizeSpatialReviewDiscovery({ schema: "spatial-review-discovery/v1", version: 1, name: "Fixture", assets: "../assets.json" }, "https://example.com/.well-known/spatial-review.json");
   assert.equal(discovery.assets, "https://example.com/assets.json");
+});
+
+test("discovers a live capture through the origin-checked browser bridge", () => {
+  const received = [];
+  let listener;
+  const editor = { postMessage(message, origin) { received.push({ message, origin }); } };
+  const originalWindow = globalThis.window;
+  globalThis.window = {
+    location: { origin: "https://site.example", href: "https://site.example/project" },
+    parent: editor,
+    opener: null,
+    addEventListener(type, value) { if (type === "message") listener = value; },
+    removeEventListener() {},
+  };
+  try {
+    const detach = attachSpatialReviewDiscoveryBridge({ name: "Fixture", liveCapture: "/capture" }, { allowedOrigins: ["https://editor.example"] });
+    listener({ origin: "https://editor.example", source: editor, data: { type: SPATIAL_REVIEW_DISCOVERY_REQUEST, requestId: "discovery-1" } });
+    assert.deepEqual(received, [{
+      origin: "https://editor.example",
+      message: {
+        type: SPATIAL_REVIEW_DISCOVERY_RESPONSE,
+        requestId: "discovery-1",
+        discoveryUrl: "https://site.example/.well-known/spatial-review.json",
+        discovery: {
+          schema: "spatial-review-discovery/v1",
+          version: 1,
+          name: "Fixture",
+          websiteUrl: "https://site.example/",
+          scene: undefined,
+          assets: undefined,
+          liveCapture: "https://site.example/capture",
+        },
+      },
+    }]);
+    listener({ origin: "https://untrusted.example", source: editor, data: { type: SPATIAL_REVIEW_DISCOVERY_REQUEST, requestId: "discovery-2" } });
+    assert.equal(received.length, 1);
+    detach();
+  } finally {
+    globalThis.window = originalWindow;
+  }
 });
 
 test("serializes registered Three.js roots without polygon decimation", () => {

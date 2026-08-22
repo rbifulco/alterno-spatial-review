@@ -4,6 +4,8 @@ import type {
   SCENE_ACTORS_SCHEMA,
   SPATIAL_REVIEW_BUNDLE_SCHEMA,
   SPATIAL_REVIEW_DISCOVERY_SCHEMA,
+  SPATIAL_REVIEW_DISCOVERY_REQUEST,
+  SPATIAL_REVIEW_DISCOVERY_RESPONSE,
   SPATIAL_REVIEW_INDEX_SCHEMA,
   SPATIAL_REVIEW_RESOURCE_REQUEST,
   SPATIAL_REVIEW_RESOURCE_RESPONSE,
@@ -38,6 +40,17 @@ export type SpatialReviewIndex = { schema: typeof SPATIAL_REVIEW_INDEX_SCHEMA | 
 
 export type SpatialReviewDiscovery = { schema: typeof SPATIAL_REVIEW_DISCOVERY_SCHEMA; version: 1; name: string; websiteUrl: string; scene?: string; assets?: string; liveCapture?: string };
 export type SpatialReviewBundle = { schema: typeof SPATIAL_REVIEW_BUNDLE_SCHEMA; websiteUrl: string; discoveryUrl: string; discovery: SpatialReviewDiscovery; scene?: unknown; assets?: unknown };
+
+export type SpatialReviewDiscoveryRequestMessage = {
+  type: typeof SPATIAL_REVIEW_DISCOVERY_REQUEST;
+  requestId: string;
+};
+export type SpatialReviewDiscoveryResponseMessage = {
+  type: typeof SPATIAL_REVIEW_DISCOVERY_RESPONSE;
+  requestId: string;
+  discoveryUrl: string;
+  discovery: SpatialReviewDiscovery;
+};
 
 export type SpatialReviewResourceTransferCapability = typeof SPATIAL_REVIEW_RESOURCE_TRANSFER_CAPABILITY;
 export type SpatialReviewResourceTransferOffer = {

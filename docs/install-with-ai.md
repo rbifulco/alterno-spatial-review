@@ -15,11 +15,13 @@ After completing the guide, the website will:
 - expose deliberately selected scene actors through the public SDK;
 - preserve canonical asset/component hierarchy, materials, and texture
   references;
-- publish a versioned discovery document;
+- optionally publish a versioned discovery document for non-browser tools;
+- expose the same discovery metadata through the browser bridge;
 - accept live review requests only from allowed origins;
 - work with an editor on a different localhost port;
 - optionally publish static scene and asset manifests; and
-- pass the Spatial Review validator after deployment.
+- pass the Spatial Review validator after deployment when publishing the
+  optional discovery document.
 
 Do not change the rendered experience solely for the integration. The review
 representation should describe the existing experience.
@@ -97,6 +99,7 @@ reviewable root.
 import {
   SceneAssetRegistry,
   attachSceneAssetRegistryBridge,
+  attachSpatialReviewDiscoveryBridge,
   type SceneAssetRegistryBridgeOptions,
 } from "@alterno-dev/spatial-review";
 
@@ -119,6 +122,15 @@ export function startSpatialReviewBridge() {
     allowedOrigins: configuredEditorOrigins(),
   };
   return attachSceneAssetRegistryBridge(spatialReviewRegistry, options);
+}
+
+export function startSpatialReviewDiscoveryBridge() {
+  return attachSpatialReviewDiscoveryBridge({
+    name: "Afterlight village",
+    liveCapture: "/?spatial-review-capture=1",
+  }, {
+    allowedOrigins: configuredEditorOrigins(),
+  });
 }
 ```
 
@@ -287,9 +299,23 @@ double-sided state, supported texture slots, UV data, and texture transforms.
 The scene profile intentionally omits supplied normals, UVs, and texture maps to
 reduce transfer size; it does not decimate polygons.
 
-## Step 8: start and clean up the bridge
+## Step 8: start and clean up the bridges
 
-Start the bridge after the website has created its reviewable scene. Keep the
+Start the lightweight discovery bridge from the ordinary website entry page.
+It lets a client-only editor learn the live-capture URL through `postMessage`
+when CORS is unavailable:
+
+```ts
+import { startSpatialReviewDiscoveryBridge } from "./spatial-review";
+
+const stopSpatialReviewDiscovery = startSpatialReviewDiscoveryBridge();
+
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => stopSpatialReviewDiscovery());
+}
+```
+
+Start the scene bridge after the website has created its reviewable scene. Keep the
 returned cleanup function for hot reload or component unmount.
 
 ```ts
@@ -318,8 +344,8 @@ useEffect(() => {
 }, []);
 ```
 
-The bridge replies only to allowed origins and only to its parent/opener window.
-Do not replace this with a wildcard catalog response.
+Both bridges reply only to allowed origins and only to their parent/opener
+window. Do not replace this with a wildcard discovery or catalog response.
 
 ## Step 9: configure local and production origins
 
@@ -348,10 +374,12 @@ VITE_SPATIAL_REVIEW_EDITOR_ORIGINS=https://review.example.com,https://staging-re
 
 Use origins only—scheme, hostname, and optional port—with no path.
 
-## Step 10: publish discovery
+## Step 10: optionally publish discovery for non-browser tools
 
-Create `public/.well-known/spatial-review.json`, or the equivalent static route
-for the framework:
+Skip this step when only the client-only editor must connect. To additionally
+support the CLI or another non-browser consumer, create
+`public/.well-known/spatial-review.json`, or the equivalent static route for the
+framework:
 
 ```json
 {
@@ -363,7 +391,7 @@ for the framework:
 }
 ```
 
-The website must advertise at least one transport:
+The optional document must advertise at least one transport:
 
 - `liveCapture` points to a page that creates and registers the live scene;
 - `scene` points to a published scene manifest; and
@@ -384,7 +412,10 @@ When static manifests are available, advertise all useful fallbacks:
 ```
 
 Relative paths resolve from the discovery URL. The discovery document and
-advertised static manifests must be public JSON.
+advertised static manifests must be public JSON for CLI validation. Cross-origin
+browser access is optional: the editor races a direct CORS request against the
+discovery bridge, then uses the live capture when static manifests cannot be
+fetched directly.
 
 ### Optional: generate the asset manifest at build time
 
@@ -574,15 +605,17 @@ available.
 Also perform these behavioral checks:
 
 1. `/.well-known/spatial-review.json` returns JSON with status 200.
-2. Every advertised scene or asset URL returns public JSON.
-3. A review tool on another localhost port receives both `scene` and
+2. An editor on another origin can discover `liveCapture` through
+   `postMessage` while the discovery response omits CORS headers.
+3. Every advertised scene or asset URL intended as a static fallback returns public JSON.
+4. A review tool on another localhost port receives both `scene` and
    `review` profiles.
-4. An unlisted production origin cannot retrieve the live catalog.
-5. Rebuilding without content changes preserves actor IDs, asset IDs, component
+5. An unlisted production origin cannot retrieve discovery or the live catalog.
+6. Rebuilding without content changes preserves actor IDs, asset IDs, component
    names, hierarchy order, and source references.
-6. Repeated placements share an `assetId` but retain unique `actorId` values.
-7. Important materials show the expected texture maps.
-8. Selecting an asset component gives the agent a recognizable name and
+7. Repeated placements share an `assetId` but retain unique `actorId` values.
+8. Important materials show the expected texture maps.
+9. Selecting an asset component gives the agent a recognizable name and
    searchable source reference.
 
 ## Completion report for the coding agent
