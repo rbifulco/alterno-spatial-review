@@ -45,7 +45,7 @@ intent easier for authors to express and easier for agents to interpret.
 ## A controlled representation closes the loop
 
 ```mermaid
-flowchart LR
+flowchart TD
     author["Author"] -->|"creative intent"| agent["AI agent"]
     agent -->|"creates or changes"| site["Spatial experience"]
     site -->|"structured scene + assets"| review["Review tool"]
