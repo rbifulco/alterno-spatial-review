@@ -1,0 +1,18 @@
+{
+  "name": "alterno-spatial-review",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Open protocol, SDK, validators, adapters, and conformance tests for Alterno Spatial Review.",
+  "license": "MIT",
+  "type": "module",
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "build": "npm run build -w @alterno-dev/spatial-review-protocol && npm run build -w @alterno-dev/spatial-review && npm run build -w @alterno-dev/spatial-review-validator && npm run build -w @alterno-dev/spatial-review-cli",
+    "test": "npm run build && node --test tests/*.test.mjs",
+    "pack:check": "npm pack --dry-run -w @alterno-dev/spatial-review-protocol && npm pack --dry-run -w @alterno-dev/spatial-review && npm pack --dry-run -w @alterno-dev/spatial-review-validator && npm pack --dry-run -w @alterno-dev/spatial-review-cli"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.0",
+    "typescript": "^5.9.3"
+  }
+}

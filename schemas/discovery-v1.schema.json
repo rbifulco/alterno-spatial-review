@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.alterno.dev/spatial-review/discovery/v1",
+  "title": "Alterno Spatial Review discovery",
+  "type": "object",
+  "required": ["schema", "version", "name"],
+  "properties": {
+    "schema": { "const": "spatial-review-discovery/v1" },
+    "version": { "const": 1 },
+    "name": { "type": "string", "minLength": 1 },
+    "websiteUrl": { "type": "string" },
+    "scene": { "type": "string" },
+    "assets": { "type": "string" },
+    "liveCapture": { "type": "string" }
+  },
+  "anyOf": [{ "required": ["scene"] }, { "required": ["assets"] }, { "required": ["liveCapture"] }],
+  "additionalProperties": true
+}
