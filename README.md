@@ -4,45 +4,65 @@
 [![npm](https://img.shields.io/npm/v/%40alterno-dev%2Fspatial-review?label=npm)](https://www.npmjs.com/package/@alterno-dev/spatial-review)
 [![License: MIT](https://img.shields.io/badge/license-MIT-0b7285.svg)](LICENSE)
 
-**Give people a precise way to review spatial experiences—and give AI coding
-agents feedback they can act on.**
+**AI agents can realize a wide range of creative ideas, provided authors can
+express their intent in a form the agent can understand and act on.**
 
-Alterno Spatial Review is an open protocol and TypeScript toolkit for exposing
-the meaningful structure behind a 3D website. Instead of receiving “move that
-object” beside a screenshot, an agent can receive the exact scene actor, asset
-component, transform, material, and source-code reference involved.
+Spatial work makes this difficult. Authors often need to refer to what they see:
+this object, that material, the proportion between two elements, or the way a
+space feels. The agent, however, works from scene data and code.
 
-[Quick start](#quick-start) · [How it works](#how-it-works) ·
-[Packages](#packages) · [Guides](#guides) · [Contributing](#contributing)
+Alterno Spatial Review is an open protocol and TypeScript toolkit that explores
+how to make this exchange more effective and efficient. The author reviews what
+the agent creates and expresses the next intent in context. The agent receives
+that intent connected to the objects, relationships, assets, and code it can
+change.
 
-## Why spatial review needs structure
+[Quick start](#quick-start) ·
+[How the loop works](#a-controlled-representation-closes-the-loop) ·
+[Presentation rules](#present-scenes-and-assets-so-intent-remains-actionable) ·
+[Packages](#four-packages-implement-one-contract) ·
+[Guides](#choose-the-guide-that-matches-the-task) ·
+[Contributing](#contributing)
 
-Screenshots and prose flatten a 3D experience. Spatial Review keeps feedback
-connected to the structure that produced what the reviewer sees.
+## Author intent needs spatial context
 
-| For reviewers | For AI agents | For website teams |
-| --- | --- | --- |
-| Comment on whole scenes or exact asset components. | Resolve feedback to stable IDs, transforms, materials, and source references. | Choose what is reviewable without exposing debug objects, secrets, or irrelevant internals. |
+The author is not an external reviewer. Reviewing is one step in the creative
+loop: the agent produces a result, the author evaluates it, and that evaluation
+becomes the next instruction.
 
-The protocol is engine-neutral. The current SDK includes a first-class Three.js
-adapter for web experiences.
+Text alone often loses the context behind the instruction. A screenshot can show
+the problem, but it does not identify the relevant scene structure. An object ID
+can identify the target, but it does not preserve the surrounding relationships
+that explain the author's intent.
 
-## How it works
+Stable identity therefore solves only part of the problem. Scene relationships,
+hierarchy, transforms, geometry, materials, and source references preserve the
+context needed to interpret what the author means and where the agent can act.
+
+The goal is not merely to attach comments to objects. It is to make spatial
+intent easier for authors to express and easier for agents to interpret.
+
+## A controlled representation closes the loop
 
 ```mermaid
 flowchart LR
-    site["Spatial website"] -->|"discovery + scene data"| review["Review tool"]
-    review -->|"grounded feedback"| agent["AI coding agent"]
-    agent -->|"targeted code changes"| site
+    author["Author"] -->|"creative intent"| agent["AI agent"]
+    agent -->|"creates or changes"| site["Spatial experience"]
+    site -->|"structured scene + assets"| review["Review tool"]
+    review -->|"result in context"| author
 ```
 
-1. A website registers the meaningful objects in its scene.
-2. It publishes a small discovery document describing its scene, assets, and
+1. The author expresses an intent and the agent produces a result.
+2. The website registers the objects that matter for evaluating that result.
+3. It publishes a discovery document describing its scenes, assets, and
    supported capture methods.
-3. A compatible review tool loads that structured presentation.
-4. The reviewer comments on the scene or on exact asset components.
-5. An AI coding agent receives feedback grounded in stable identifiers and
-   source references.
+4. A compatible review tool presents the result with its spatial structure.
+5. The author's evaluation becomes the next instruction, connected to stable
+   identifiers and source references.
+
+This keeps the website authoritative. The review tool does not infer structure
+from rendered pixels, and the agent does not need unrestricted access to the
+application.
 
 | Review scale | What it preserves | Useful for |
 | --- | --- | --- |
@@ -52,6 +72,9 @@ flowchart LR
 > [!IMPORTANT]
 > Spatial Review does not scrape an arbitrary WebGL canvas. The website opts in
 > and exposes only the objects that should participate in review.
+
+The protocol is engine-neutral. The current SDK includes a Three.js adapter;
+adapters for other engines are not yet included.
 
 ## Quick start
 
@@ -135,7 +158,7 @@ covers active development, vendoring, CI, and updates.
 
 </details>
 
-## Present scenes and assets for useful feedback
+## Present scenes and assets so intent remains actionable
 
 A good integration exposes design intent, not merely render data:
 
@@ -154,7 +177,7 @@ A good integration exposes design intent, not merely render data:
 Read [Present scenes and assets for effective review](docs/install-with-ai.md#present-scenes-and-assets-for-effective-review)
 for detailed patterns and examples.
 
-## Packages
+## Four packages implement one contract
 
 | Package | Purpose |
 | --- | --- |
@@ -163,9 +186,11 @@ for detailed patterns and examples.
 | [`@alterno-dev/spatial-review-validator`](https://www.npmjs.com/package/@alterno-dev/spatial-review-validator) | Runtime validation for discovery, asset, and review-index documents |
 | [`@alterno-dev/spatial-review-cli`](https://www.npmjs.com/package/@alterno-dev/spatial-review-cli) | Integration validation from a terminal or CI |
 
-The packages are versioned together as one compatible toolset.
+The packages are versioned together because they describe and implement the
+same compatibility boundary. Producers, validators, and consumers need to agree
+on what each contract means.
 
-## Guides
+## Choose the guide that matches the task
 
 | Goal | Guide |
 | --- | --- |
