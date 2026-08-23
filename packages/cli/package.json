@@ -1,6 +1,6 @@
 {
   "name": "@alterno-dev/spatial-review-cli",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Validate an Alterno Spatial Review website from CI or a terminal.",
   "license": "MIT",
   "type": "module",
@@ -10,5 +10,5 @@
   "files": ["dist", "README.md"],
   "publishConfig": { "access": "public" },
   "scripts": { "build": "tsc -p tsconfig.json" },
-  "dependencies": { "@alterno-dev/spatial-review-protocol": "0.2.0", "@alterno-dev/spatial-review-validator": "0.2.0" }
+  "dependencies": { "@alterno-dev/spatial-review-protocol": "0.3.0", "@alterno-dev/spatial-review-validator": "0.3.0" }
 }
