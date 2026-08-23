@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { discoveryUrlForWebsite } from "@alterno-dev/spatial-review-protocol";
+import { discoveryUrlForWebsite, spatialReviewEditorUrl } from "@alterno-dev/spatial-review-protocol";
 import { validateAssetDocument, validateDiscovery } from "@alterno-dev/spatial-review-validator";
 
 async function json(url: string) {
@@ -18,7 +18,7 @@ async function validate(website: string) {
     const assets = validateAssetDocument(await json(discovery.assets));
     if (!assets.ok) throw new Error(assets.errors.join("\n"));
   }
-  process.stdout.write(`Compatible: ${discovery.name}\nScene: ${discovery.scene ? "yes" : "no"}\nAssets: ${discovery.assets ? "yes" : "no"}\nLive: ${discovery.liveCapture ? "yes" : "no"}\n`);
+  process.stdout.write(`Compatible: ${discovery.name}\nScene: ${discovery.scene ? "yes" : "no"}\nAssets: ${discovery.assets ? "yes" : "no"}\nLive: ${discovery.liveCapture ? "yes" : "no"}\nOpen review: ${spatialReviewEditorUrl(discovery.websiteUrl)}\n`);
 }
 
 const [command, website] = process.argv.slice(2);

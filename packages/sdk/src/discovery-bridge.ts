@@ -3,6 +3,7 @@ import {
   SPATIAL_REVIEW_DISCOVERY_REQUEST,
   SPATIAL_REVIEW_DISCOVERY_RESPONSE,
   SPATIAL_REVIEW_DISCOVERY_SCHEMA,
+  OFFICIAL_SPATIAL_REVIEW_EDITOR_ORIGIN,
   normalizeSpatialReviewDiscovery,
   type SpatialReviewDiscovery,
   type SpatialReviewDiscoveryRequestMessage,
@@ -18,6 +19,8 @@ export type SpatialReviewDiscoveryRegistration = {
 };
 
 export type SpatialReviewDiscoveryBridgeOptions = {
+  /** Trust the official Alterno editor origin. Defaults to true. */
+  allowOfficialEditor?: boolean;
   allowedOrigins?: Iterable<string>;
   allowOrigin?: (origin: string) => boolean;
 };
@@ -36,6 +39,7 @@ export function attachSpatialReviewDiscoveryBridge(
   const configured = new Set([...(options.allowedOrigins ?? [])].flatMap((origin) => {
     try { return [new URL(origin).origin]; } catch { return []; }
   }));
+  if (options.allowOfficialEditor !== false) configured.add(OFFICIAL_SPATIAL_REVIEW_EDITOR_ORIGIN);
   configured.add(window.location.origin);
   const allowed = (origin: string) => configured.has(origin)
     || Boolean(options.allowOrigin?.(origin))

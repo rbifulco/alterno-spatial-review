@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import * as THREE from "three";
 import { SceneAssetRegistry, attachSceneAssetRegistryBridge, attachSpatialReviewDiscoveryBridge, buildThreeAsset, disposeThreeAsset } from "../packages/sdk/dist/index.js";
-import { SPATIAL_REVIEW_CATALOG, SPATIAL_REVIEW_DISCOVERY_REQUEST, SPATIAL_REVIEW_DISCOVERY_RESPONSE, SPATIAL_REVIEW_INDEX_SCHEMA, SPATIAL_REVIEW_REQUEST, SPATIAL_REVIEW_RESOURCE_REQUEST, SPATIAL_REVIEW_RESOURCE_RESPONSE, SPATIAL_REVIEW_RESOURCE_TRANSFER_CAPABILITY, discoveryUrlForWebsite, normalizeSpatialReviewDiscovery } from "../packages/protocol/dist/index.js";
+import { OFFICIAL_SPATIAL_REVIEW_EDITOR_ORIGIN, SPATIAL_REVIEW_CATALOG, SPATIAL_REVIEW_DISCOVERY_REQUEST, SPATIAL_REVIEW_DISCOVERY_RESPONSE, SPATIAL_REVIEW_INDEX_SCHEMA, SPATIAL_REVIEW_REQUEST, SPATIAL_REVIEW_RESOURCE_REQUEST, SPATIAL_REVIEW_RESOURCE_RESPONSE, SPATIAL_REVIEW_RESOURCE_TRANSFER_CAPABILITY, discoveryUrlForWebsite, normalizeSpatialReviewDiscovery, spatialReviewEditorUrl } from "../packages/protocol/dist/index.js";
 import { validateAssetDocument, validateReviewIndex } from "../packages/validator/dist/index.js";
 
 test("normalizes discovery URLs", () => {
@@ -10,6 +10,92 @@ test("normalizes discovery URLs", () => {
   assert.equal(url, "https://example.com/.well-known/spatial-review.json");
   const discovery = normalizeSpatialReviewDiscovery({ schema: "spatial-review-discovery/v1", version: 1, name: "Fixture", assets: "../assets.json" }, "https://example.com/.well-known/spatial-review.json");
   assert.equal(discovery.assets, "https://example.com/assets.json");
+});
+
+test("builds official editor deep links", () => {
+  assert.equal(
+    spatialReviewEditorUrl("project.example/path"),
+    "https://spatial-review.alterno.dev/review?site=https%3A%2F%2Fproject.example%2Fpath",
+  );
+  assert.equal(
+    spatialReviewEditorUrl("https://project.example/path", "assets"),
+    "https://spatial-review.alterno.dev/asset-editor?site=https%3A%2F%2Fproject.example%2Fpath",
+  );
+});
+
+test("trusts the official editor for discovery by default and supports explicit opt-out", () => {
+  const received = [];
+  let listener;
+  const editor = { postMessage(message, origin) { received.push({ message, origin }); } };
+  const originalWindow = globalThis.window;
+  globalThis.window = {
+    location: { origin: "https://site.example", href: "https://site.example/project" },
+    parent: editor,
+    opener: null,
+    addEventListener(type, value) { if (type === "message") listener = value; },
+    removeEventListener() {},
+  };
+  try {
+    const registration = { name: "Fixture", liveCapture: "/capture" };
+    const request = { type: SPATIAL_REVIEW_DISCOVERY_REQUEST, requestId: "official-default" };
+    const detachDefault = attachSpatialReviewDiscoveryBridge(registration);
+    listener({ origin: OFFICIAL_SPATIAL_REVIEW_EDITOR_ORIGIN, source: editor, data: request });
+    assert.equal(received.at(-1)?.origin, OFFICIAL_SPATIAL_REVIEW_EDITOR_ORIGIN);
+    detachDefault();
+
+    received.length = 0;
+    const detachOptOut = attachSpatialReviewDiscoveryBridge(registration, { allowOfficialEditor: false });
+    listener({ origin: OFFICIAL_SPATIAL_REVIEW_EDITOR_ORIGIN, source: editor, data: request });
+    assert.equal(received.length, 0);
+    detachOptOut();
+  } finally {
+    globalThis.window = originalWindow;
+  }
+});
+
+test("trusts the official editor for registered scene catalogs by default", async () => {
+  const root = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());
+  const registry = new SceneAssetRegistry("official-editor-fixture");
+  registry.register({ actorId: "fixture", assetId: "fixture", name: "Fixture", category: "Test", sourceRef: "fixture.ts", root });
+  const received = [];
+  let listener;
+  const editor = { postMessage(message, origin) { received.push({ message, origin }); } };
+  const originalWindow = globalThis.window;
+  globalThis.window = {
+    location: { origin: "https://site.example" },
+    parent: editor,
+    opener: null,
+    addEventListener(type, value) { if (type === "message") listener = value; },
+    removeEventListener() {},
+    setTimeout,
+  };
+  try {
+    const detach = attachSceneAssetRegistryBridge(registry);
+    listener({
+      origin: OFFICIAL_SPATIAL_REVIEW_EDITOR_ORIGIN,
+      source: editor,
+      data: { type: SPATIAL_REVIEW_REQUEST, profile: "review", requestId: "official-catalog" },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const catalog = received.find((entry) => entry.message.type === SPATIAL_REVIEW_CATALOG);
+    assert.equal(catalog?.origin, OFFICIAL_SPATIAL_REVIEW_EDITOR_ORIGIN);
+    assert.equal(catalog?.message.payload.assetCatalog.assets.length, 1);
+    detach();
+
+    received.length = 0;
+    const detachOptOut = attachSceneAssetRegistryBridge(registry, { allowOfficialEditor: false });
+    received.length = 0; // Ignore the bridge-ready announcement.
+    listener({
+      origin: OFFICIAL_SPATIAL_REVIEW_EDITOR_ORIGIN,
+      source: editor,
+      data: { type: SPATIAL_REVIEW_REQUEST, profile: "review", requestId: "official-opt-out" },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(received.length, 0);
+    detachOptOut();
+  } finally {
+    globalThis.window = originalWindow;
+  }
 });
 
 test("discovers a live capture through the origin-checked browser bridge", () => {
@@ -25,7 +111,7 @@ test("discovers a live capture through the origin-checked browser bridge", () =>
     removeEventListener() {},
   };
   try {
-    const detach = attachSpatialReviewDiscoveryBridge({ name: "Fixture", liveCapture: "/capture" }, { allowedOrigins: ["https://editor.example"] });
+    const detach = attachSpatialReviewDiscoveryBridge({ name: "Fixture", liveCapture: "/capture" }, { allowOfficialEditor: false, allowedOrigins: ["https://editor.example"] });
     listener({ origin: "https://editor.example", source: editor, data: { type: SPATIAL_REVIEW_DISCOVERY_REQUEST, requestId: "discovery-1" } });
     assert.deepEqual(received, [{
       origin: "https://editor.example",

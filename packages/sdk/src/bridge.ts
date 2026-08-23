@@ -1,9 +1,15 @@
-import { LEGACY_SPATIAL_REVIEW_CATALOG, LEGACY_SPATIAL_REVIEW_READY, LEGACY_SPATIAL_REVIEW_REQUEST, SPATIAL_REVIEW_CATALOG, SPATIAL_REVIEW_READY, SPATIAL_REVIEW_REQUEST, SPATIAL_REVIEW_RESOURCE_REQUEST, SPATIAL_REVIEW_RESOURCE_RESPONSE, SPATIAL_REVIEW_RESOURCE_TRANSFER_CAPABILITY, type SpatialReviewCatalogRequest, type SpatialReviewProfile, type SpatialReviewResourceRequest, type SpatialReviewResourceResponse, type SpatialReviewResourceTransferOffer } from "@alterno-dev/spatial-review-protocol";
+import { LEGACY_SPATIAL_REVIEW_CATALOG, LEGACY_SPATIAL_REVIEW_READY, LEGACY_SPATIAL_REVIEW_REQUEST, OFFICIAL_SPATIAL_REVIEW_EDITOR_ORIGIN, SPATIAL_REVIEW_CATALOG, SPATIAL_REVIEW_READY, SPATIAL_REVIEW_REQUEST, SPATIAL_REVIEW_RESOURCE_REQUEST, SPATIAL_REVIEW_RESOURCE_RESPONSE, SPATIAL_REVIEW_RESOURCE_TRANSFER_CAPABILITY, type SpatialReviewCatalogRequest, type SpatialReviewProfile, type SpatialReviewResourceRequest, type SpatialReviewResourceResponse, type SpatialReviewResourceTransferOffer } from "@alterno-dev/spatial-review-protocol";
 import type { SceneAssetRegistry } from "./registry.js";
 
 const DEFAULT_MAX_RESOURCE_BYTES = 16 * 1024 * 1024;
 
-export type SceneAssetRegistryBridgeOptions = { allowedOrigins?: Iterable<string>; allowOrigin?: (origin: string) => boolean; maxResourceBytes?: number };
+export type SceneAssetRegistryBridgeOptions = {
+  /** Trust the official Alterno editor origin. Defaults to true. */
+  allowOfficialEditor?: boolean;
+  allowedOrigins?: Iterable<string>;
+  allowOrigin?: (origin: string) => boolean;
+  maxResourceBytes?: number;
+};
 function loopback(origin: string) { try { const hostname = new URL(origin).hostname.toLowerCase().replace(/^\[|\]$/g, ""); return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1"; } catch { return false; } }
 function offeredLimit(value: unknown) {
   const offer = value as Partial<SpatialReviewResourceTransferOffer> | null;
@@ -13,7 +19,9 @@ function offeredLimit(value: unknown) {
 }
 
 export function attachSceneAssetRegistryBridge(registry: SceneAssetRegistry, options: SceneAssetRegistryBridgeOptions = {}) {
-  const configured = new Set([...(options.allowedOrigins ?? [])].flatMap((origin) => { try { return [new URL(origin).origin]; } catch { return []; } })); configured.add(window.location.origin);
+  const configured = new Set([...(options.allowedOrigins ?? [])].flatMap((origin) => { try { return [new URL(origin).origin]; } catch { return []; } }));
+  if (options.allowOfficialEditor !== false) configured.add(OFFICIAL_SPATIAL_REVIEW_EDITOR_ORIGIN);
+  configured.add(window.location.origin);
   const allowed = (origin: string) => configured.has(origin) || Boolean(options.allowOrigin?.(origin)) || (loopback(window.location.origin) && loopback(origin));
   const maxResourceBytes = Math.floor(Number.isFinite(options.maxResourceBytes) && Number(options.maxResourceBytes) > 0 ? Number(options.maxResourceBytes) : DEFAULT_MAX_RESOURCE_BYTES);
   const resourceTransfer = { capability: SPATIAL_REVIEW_RESOURCE_TRANSFER_CAPABILITY, maxBytes: maxResourceBytes } satisfies SpatialReviewResourceTransferOffer;

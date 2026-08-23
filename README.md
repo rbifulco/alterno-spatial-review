@@ -18,6 +18,7 @@ that intent connected to the objects, relationships, assets, and code it can
 change.
 
 [Quick start](#quick-start) ·
+[Hosted editor](https://spatial-review.alterno.dev/) ·
 [How the loop works](#a-controlled-representation-closes-the-loop) ·
 [Presentation rules](#present-scenes-and-assets-so-intent-remains-actionable) ·
 [Packages](#four-packages-implement-one-contract) ·
@@ -78,6 +79,27 @@ adapters for other engines are not yet included.
 
 ## Quick start
 
+> [!IMPORTANT]
+> Installing the package alone does not expose data or start a connection.
+> Calling the SDK's discovery and scene bridge functions opts the page into
+> review access. By default, those bridges trust the exact official editor
+> origin, `https://spatial-review.alterno.dev`. That editor can request the
+> discovery metadata, registered scene/asset structures, and registered texture
+> bytes intended for review; it does not receive arbitrary DOM, application
+> state, credentials, or unregistered objects. Set `allowOfficialEditor: false`
+> on both bridges to opt out, and use `allowedOrigins` for any additional
+> self-hosted review tools.
+> Live no-CORS review also requires the integrated page to permit framing by
+> that exact origin, typically with `Content-Security-Policy: frame-ancestors
+> 'self' https://spatial-review.alterno.dev`. Do not remove framing protections
+> globally or allow arbitrary ancestors.
+
+> [!NOTE]
+> This official-origin default is introduced in version 0.3.0. It is a minor,
+> not patch, release so existing `^0.2.x` installations do not silently acquire
+> the new authorization. Review the permission and choose an explicit
+> `allowOfficialEditor` value when upgrading.
+
 ### 1. Install the Three.js SDK
 
 ```sh
@@ -97,7 +119,8 @@ attachSpatialReviewDiscoveryBridge({
   name: "My spatial project",
   liveCapture: "/?spatial-review-capture=1",
 }, {
-  allowedOrigins: ["http://localhost:3000", "https://review.example"],
+  // Explicitly records that this site allows the official hosted editor.
+  allowOfficialEditor: true,
 });
 
 const registry = new SceneAssetRegistry("project-v1");
@@ -113,14 +136,29 @@ registry.register({
 });
 
 attachSceneAssetRegistryBridge(registry, {
-  allowedOrigins: ["http://localhost:3000", "https://review.example"],
+  // Use false to deny the official editor; add self-hosted tools separately.
+  allowOfficialEditor: true,
 });
 ```
 
-Use the local review origin while developing, then replace
-`https://review.example` with the origin of the review tool you trust.
+`allowOfficialEditor` defaults to `true`, but the example spells it out so the
+authorization is visible in source. Loopback origins are accepted during local
+development. Additional production editors must be listed explicitly in
+`allowedOrigins`.
 
-### 3. Optionally publish the discovery document
+### 3. Open the hosted editor
+
+Open [Spatial Review](https://spatial-review.alterno.dev/) and paste the website
+URL, or deep-link directly:
+
+```ts
+import { spatialReviewEditorUrl } from "@alterno-dev/spatial-review";
+
+const reviewUrl = spatialReviewEditorUrl(window.location.href);
+// https://spatial-review.alterno.dev/review?site=...
+```
+
+### 4. Optionally publish the discovery document
 
 The browser bridge above is sufficient for a client-only editor. To support the
 CLI and other non-browser tools, also serve `/.well-known/spatial-review.json`:
@@ -135,7 +173,7 @@ CLI and other non-browser tools, also serve `/.well-known/spatial-review.json`:
 }
 ```
 
-### 4. Optionally validate the deployed document
+### 5. Optionally validate the deployed document
 
 ```sh
 npx @alterno-dev/spatial-review-cli validate https://project.example

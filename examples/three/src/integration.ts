@@ -4,4 +4,5 @@ import { SceneAssetRegistry, attachSceneAssetRegistryBridge } from "@alterno-dev
 const root = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial());
 const registry = new SceneAssetRegistry("example-v1");
 registry.register({ actorId: "example-cube", assetId: "example-cube", name: "Example cube", category: "Example", sourceRef: "src/integration.ts", root });
-attachSceneAssetRegistryBridge(registry, { allowedOrigins: ["http://localhost:3000"] });
+// This example explicitly authorizes the official hosted editor. Set false to opt out.
+attachSceneAssetRegistryBridge(registry, { allowOfficialEditor: true });

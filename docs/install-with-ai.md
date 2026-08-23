@@ -8,6 +8,40 @@ clear intent and helps the agent map that feedback back to code.
 The examples use Three.js and TypeScript. Adapt file locations and environment
 variable syntax to the website's framework without changing the protocol.
 
+## Mandatory permission checkpoint for the coding agent
+
+Before installing the SDK or adding either browser bridge, stop and ask the
+user for permission to authorize the official hosted editor. Do not infer this
+permission from a general request to “add Spatial Review.” State all of the
+following in the question:
+
+- the exact trusted origin is `https://spatial-review.alterno.dev`;
+- package installation alone does not expose data, but starting the bridge does;
+- the hosted editor may request discovery metadata, deliberately registered
+  scene and asset structure, materials, source references, and registered
+  texture bytes;
+- it does not receive arbitrary DOM, application state, credentials, or
+  unregistered scene objects; and
+- the relevant discovery and live-capture pages must permit that exact origin
+  to embed them, which may require a scoped `frame-ancestors` header change; and
+- the authorization can be disabled with `allowOfficialEditor: false`.
+
+Ask a direct question such as:
+
+> Do you approve allowing `https://spatial-review.alterno.dev` to connect to
+> this page and receive the scene, asset, material, source-reference, and
+> texture data that we explicitly register for review, and allowing that exact
+> origin to embed the discovery and live-capture pages?
+
+Wait for an affirmative answer before writing `allowOfficialEditor: true`. If
+the user declines, write `allowOfficialEditor: false`. If they want a different
+or self-hosted editor, ask separately for each exact production origin before
+adding it to `allowedOrigins`. Record the decision explicitly in source code
+even though the official editor defaults to enabled when the option is omitted.
+Do not remove or broaden an existing CSP `frame-ancestors` or `X-Frame-Options`
+policy without the same approval; prefer an exact origin and the narrowest route
+scope supported by the application.
+
 ## Expected result
 
 After completing the guide, the website will:
@@ -17,7 +51,8 @@ After completing the guide, the website will:
   references;
 - optionally publish a versioned discovery document for non-browser tools;
 - expose the same discovery metadata through the browser bridge;
-- accept live review requests only from allowed origins;
+- accept live review requests from the official editor only with the user's
+  recorded permission, plus any separately approved exact origins;
 - work with an editor on a different localhost port;
 - optionally publish static scene and asset manifests; and
 - pass the Spatial Review validator after deployment when publishing the
@@ -110,6 +145,9 @@ const buildId =
 
 export const spatialReviewRegistry = new SceneAssetRegistry(buildId);
 
+// Set this only after the user approves the official origin described above.
+const allowOfficialEditor = true;
+
 function configuredEditorOrigins() {
   return String(import.meta.env.VITE_SPATIAL_REVIEW_EDITOR_ORIGINS ?? "")
     .split(",")
@@ -119,6 +157,7 @@ function configuredEditorOrigins() {
 
 export function startSpatialReviewBridge() {
   const options: SceneAssetRegistryBridgeOptions = {
+    allowOfficialEditor,
     allowedOrigins: configuredEditorOrigins(),
   };
   return attachSceneAssetRegistryBridge(spatialReviewRegistry, options);
@@ -129,14 +168,18 @@ export function startSpatialReviewDiscoveryBridge() {
     name: "Afterlight village",
     liveCapture: "/?spatial-review-capture=1",
   }, {
+    allowOfficialEditor,
     allowedOrigins: configuredEditorOrigins(),
   });
 }
 ```
 
 Use the equivalent public environment API for Next.js, Astro, SvelteKit,
-webpack, or another framework. The origin allowlist is public configuration,
-not a secret.
+webpack, or another framework. The authorization flag and origin allowlist are
+public configuration, not secrets. Keep the boolean literal visible in source
+so reviewers can audit the decision. `configuredEditorOrigins()` is only for
+additional approved editors; the official editor is governed by
+`allowOfficialEditor`.
 
 Do not use a timestamp as the supplied build ID. Prefer a release version or
 commit identifier that helps connect a review to the code that produced it.
@@ -344,8 +387,10 @@ useEffect(() => {
 }, []);
 ```
 
-Both bridges reply only to allowed origins and only to their parent/opener
-window. Do not replace this with a wildcard discovery or catalog response.
+Both bridges reply only to the official editor when authorized, additional
+allowed origins, the page's own origin, and mutually trusted loopback origins;
+they also require the requester to be their parent/opener window. Do not
+replace this with a wildcard discovery or catalog response.
 
 ## Step 9: configure local and production origins
 
@@ -353,26 +398,45 @@ Local development should use different ports so it exercises real cross-origin
 behavior:
 
 ```text
-Review tool:       http://localhost:3000
+Review tool:       http://localhost:5173
 Integrated site:  http://localhost:4000
 ```
 
 Loopback origins are mutually accepted by the SDK. No future production domain
 is needed for local testing.
 
-For deployment, provide one or more exact origins:
+The SDK's official production default is:
+
+```text
+https://spatial-review.alterno.dev
+```
+
+It is controlled by the explicitly recorded `allowOfficialEditor` permission.
+To authorize additional self-hosted or staging editors, provide exact origins:
 
 ```env
-VITE_SPATIAL_REVIEW_EDITOR_ORIGINS=https://review.example.com
+VITE_SPATIAL_REVIEW_EDITOR_ORIGINS=https://review.my-company.example
 ```
 
 Multiple origins are comma-separated:
 
 ```env
-VITE_SPATIAL_REVIEW_EDITOR_ORIGINS=https://review.example.com,https://staging-review.example.com
+VITE_SPATIAL_REVIEW_EDITOR_ORIGINS=https://review.my-company.example,https://staging-review.my-company.example
 ```
 
 Use origins only—scheme, hostname, and optional port—with no path.
+
+If the website sends a Content Security Policy, preserve its existing ancestor
+policy and add the approved editor exactly:
+
+```http
+Content-Security-Policy: frame-ancestors 'self' https://spatial-review.alterno.dev
+```
+
+This directive must be an HTTP response header, not a `<meta>` element. Do not
+send `X-Frame-Options: DENY` or `SAMEORIGIN` on pages intended for cross-origin
+live review. Do not replace the exact origin with `*`. If policy can be scoped
+by route, apply it only to the discovery and live-capture entry pages.
 
 ## Step 10: optionally publish discovery for non-browser tools
 
@@ -614,8 +678,9 @@ Also perform these behavioral checks:
    public JSON.
 4. A review tool on another localhost port receives both `scene` and
    `review` profiles.
-5. An unlisted production origin cannot receive a browser discovery response or
-   retrieve the live catalog.
+5. The official editor receives a response only when `allowOfficialEditor` is
+   `true`; an unlisted production origin cannot receive discovery, catalog, or
+   texture responses.
 6. Rebuilding without content changes preserves actor IDs, asset IDs, component
    names, hierarchy order, and source references.
 7. Repeated placements share an `assetId` but retain unique `actorId` values.
@@ -628,6 +693,9 @@ Also perform these behavioral checks:
 When finished, report:
 
 - package version installed;
+- the user's official-editor permission decision and the exact authorized
+  production origins;
+- any framing-header change and the routes to which it applies;
 - files added or changed;
 - browser discovery entry URL, advertised transports, and any optional
   well-known discovery URL;
