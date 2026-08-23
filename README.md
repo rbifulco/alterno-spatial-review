@@ -54,8 +54,8 @@ flowchart TD
 
 1. The author expresses an intent and the agent produces a result.
 2. The website registers the objects that matter for evaluating that result.
-3. It publishes a discovery document describing its scenes, assets, and
-   supported capture methods.
+3. It advertises its scenes, assets, and supported capture methods through the
+   browser bridge, with an optional discovery document for non-browser tools.
 4. A compatible review tool presents the result with its spatial structure.
 5. The author's evaluation becomes the next instruction, connected to stable
    identifiers and source references.
@@ -90,7 +90,15 @@ npm install @alterno-dev/spatial-review three
 import {
   SceneAssetRegistry,
   attachSceneAssetRegistryBridge,
+  attachSpatialReviewDiscoveryBridge,
 } from "@alterno-dev/spatial-review";
+
+attachSpatialReviewDiscoveryBridge({
+  name: "My spatial project",
+  liveCapture: "/?spatial-review-capture=1",
+}, {
+  allowedOrigins: ["http://localhost:3000", "https://review.example"],
+});
 
 const registry = new SceneAssetRegistry("project-v1");
 
@@ -112,9 +120,10 @@ attachSceneAssetRegistryBridge(registry, {
 Use the local review origin while developing, then replace
 `https://review.example` with the origin of the review tool you trust.
 
-### 3. Publish the discovery document
+### 3. Optionally publish the discovery document
 
-Serve `/.well-known/spatial-review.json` from the website:
+The browser bridge above is sufficient for a client-only editor. To support the
+CLI and other non-browser tools, also serve `/.well-known/spatial-review.json`:
 
 ```json
 {
@@ -126,7 +135,7 @@ Serve `/.well-known/spatial-review.json` from the website:
 }
 ```
 
-### 4. Validate the deployed integration
+### 4. Optionally validate the deployed document
 
 ```sh
 npx @alterno-dev/spatial-review-cli validate https://project.example
@@ -170,7 +179,8 @@ A good integration exposes design intent, not merely render data:
 - Keep component hierarchy and child ordering stable so component identities
   survive rebuilds.
 - Set `sourceRef` to a durable code symbol or content path an agent can find.
-- Preserve public texture URLs so material feedback appears in context.
+- Preserve texture source references when available. Live integrations can
+  transfer texture bytes over `postMessage`; public CORS access is optional.
 - Include enough context to judge composition, but exclude helpers, debug
   meshes, secrets, and irrelevant implementation detail.
 

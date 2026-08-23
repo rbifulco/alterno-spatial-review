@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import * as THREE from "three";
-import { SceneAssetRegistry, buildThreeAsset, disposeThreeAsset } from "../packages/sdk/dist/index.js";
-import { SPATIAL_REVIEW_INDEX_SCHEMA, discoveryUrlForWebsite, normalizeSpatialReviewDiscovery } from "../packages/protocol/dist/index.js";
+import { SceneAssetRegistry, attachSceneAssetRegistryBridge, attachSpatialReviewDiscoveryBridge, buildThreeAsset, disposeThreeAsset } from "../packages/sdk/dist/index.js";
+import { SPATIAL_REVIEW_CATALOG, SPATIAL_REVIEW_DISCOVERY_REQUEST, SPATIAL_REVIEW_DISCOVERY_RESPONSE, SPATIAL_REVIEW_INDEX_SCHEMA, SPATIAL_REVIEW_REQUEST, SPATIAL_REVIEW_RESOURCE_REQUEST, SPATIAL_REVIEW_RESOURCE_RESPONSE, SPATIAL_REVIEW_RESOURCE_TRANSFER_CAPABILITY, discoveryUrlForWebsite, normalizeSpatialReviewDiscovery } from "../packages/protocol/dist/index.js";
 import { validateAssetDocument, validateReviewIndex } from "../packages/validator/dist/index.js";
 
 test("normalizes discovery URLs", () => {
@@ -10,6 +10,46 @@ test("normalizes discovery URLs", () => {
   assert.equal(url, "https://example.com/.well-known/spatial-review.json");
   const discovery = normalizeSpatialReviewDiscovery({ schema: "spatial-review-discovery/v1", version: 1, name: "Fixture", assets: "../assets.json" }, "https://example.com/.well-known/spatial-review.json");
   assert.equal(discovery.assets, "https://example.com/assets.json");
+});
+
+test("discovers a live capture through the origin-checked browser bridge", () => {
+  const received = [];
+  let listener;
+  const editor = { postMessage(message, origin) { received.push({ message, origin }); } };
+  const originalWindow = globalThis.window;
+  globalThis.window = {
+    location: { origin: "https://site.example", href: "https://site.example/project" },
+    parent: editor,
+    opener: null,
+    addEventListener(type, value) { if (type === "message") listener = value; },
+    removeEventListener() {},
+  };
+  try {
+    const detach = attachSpatialReviewDiscoveryBridge({ name: "Fixture", liveCapture: "/capture" }, { allowedOrigins: ["https://editor.example"] });
+    listener({ origin: "https://editor.example", source: editor, data: { type: SPATIAL_REVIEW_DISCOVERY_REQUEST, requestId: "discovery-1" } });
+    assert.deepEqual(received, [{
+      origin: "https://editor.example",
+      message: {
+        type: SPATIAL_REVIEW_DISCOVERY_RESPONSE,
+        requestId: "discovery-1",
+        discoveryUrl: "https://site.example/.well-known/spatial-review.json",
+        discovery: {
+          schema: "spatial-review-discovery/v1",
+          version: 1,
+          name: "Fixture",
+          websiteUrl: "https://site.example/",
+          scene: undefined,
+          assets: undefined,
+          liveCapture: "https://site.example/capture",
+        },
+      },
+    }]);
+    listener({ origin: "https://untrusted.example", source: editor, data: { type: SPATIAL_REVIEW_DISCOVERY_REQUEST, requestId: "discovery-2" } });
+    assert.equal(received.length, 1);
+    detach();
+  } finally {
+    globalThis.window = originalWindow;
+  }
 });
 
 test("serializes registered Three.js roots without polygon decimation", () => {
@@ -30,6 +70,73 @@ test("emits a legacy index only when explicitly requested", () => {
   const registry = new SceneAssetRegistry("legacy-fixture");
   registry.register({ actorId: "fixture", assetId: "fixture", name: "Fixture", category: "Test", sourceRef: "fixture.ts", root });
   assert.equal(registry.toReviewIndex("scene", true).schema, "sole-review-index/v1");
+});
+
+test("advertises and reads registered texture resources", async () => {
+  const texture = new THREE.Texture();
+  texture.userData.sourceRef = "data:image/png;base64,iVBORw0KGgo=";
+  const root = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial({ map: texture }));
+  const registry = new SceneAssetRegistry("texture-fixture");
+  registry.register({ actorId: "fixture", assetId: "fixture", name: "Fixture", category: "Test", sourceRef: "fixture.ts", root });
+  const index = registry.toReviewIndex("review");
+  const map = index.assetCatalog.assets[0].materials[0].maps[0];
+  assert.match(map.resourceId, /^three-texture:/);
+  const resource = await registry.readTextureResource(map.resourceId, 1024);
+  assert.equal(resource.contentType, "image/png");
+  assert.ok(resource.bytes.byteLength > 0);
+});
+
+test("transfers requested texture bytes through the origin-checked browser bridge", async () => {
+  const texture = new THREE.Texture();
+  texture.userData.sourceRef = "data:image/png;base64,iVBORw0KGgo=";
+  const root = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial({ map: texture }));
+  const registry = new SceneAssetRegistry("bridge-texture-fixture");
+  registry.register({ actorId: "fixture", assetId: "fixture", name: "Fixture", category: "Test", sourceRef: "fixture.ts", root });
+  const received = [];
+  let listener;
+  const editor = { postMessage(message, origin, transfer) { received.push({ message, origin, transfer }); } };
+  const originalWindow = globalThis.window;
+  globalThis.window = {
+    location: { origin: "https://site.example" },
+    parent: editor,
+    opener: null,
+    addEventListener(type, value) { if (type === "message") listener = value; },
+    removeEventListener() {},
+    setTimeout,
+  };
+  try {
+    const detach = attachSceneAssetRegistryBridge(registry, { allowedOrigins: ["https://editor.example"], maxResourceBytes: 512 });
+    listener({ origin: "https://editor.example", source: editor, data: { type: SPATIAL_REVIEW_REQUEST, profile: "review", requestId: "catalog-1", resourceTransfer: { capability: SPATIAL_REVIEW_RESOURCE_TRANSFER_CAPABILITY, maxBytes: 1024 } } });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const catalogMessage = received.find((entry) => entry.message.type === SPATIAL_REVIEW_CATALOG)?.message;
+    assert.deepEqual(catalogMessage.resourceTransfer, { capability: SPATIAL_REVIEW_RESOURCE_TRANSFER_CAPABILITY, maxBytes: 512 });
+    const resourceId = catalogMessage.payload.assetCatalog.assets[0].materials[0].maps[0].resourceId;
+    listener({ origin: "https://editor.example", source: editor, data: { type: SPATIAL_REVIEW_RESOURCE_REQUEST, requestId: "resource-1", resourceId } });
+    for (let attempt = 0; attempt < 20 && !received.some((entry) => entry.message.type === SPATIAL_REVIEW_RESOURCE_RESPONSE); attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 2));
+    }
+    const resource = received.find((entry) => entry.message.type === SPATIAL_REVIEW_RESOURCE_RESPONSE);
+    assert.equal(resource.origin, "https://editor.example");
+    assert.equal(resource.message.ok, true);
+    assert.equal(resource.message.contentType, "image/png");
+    assert.ok(resource.message.bytes.byteLength > 0);
+    assert.deepEqual(resource.transfer, [resource.message.bytes]);
+
+    listener({ origin: "https://editor.example", source: editor, data: { type: SPATIAL_REVIEW_REQUEST, profile: "review", requestId: "catalog-2", resourceTransfer: { capability: SPATIAL_REVIEW_RESOURCE_TRANSFER_CAPABILITY, maxBytes: 4 } } });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const constrainedCatalog = received.find((entry) => entry.message.type === SPATIAL_REVIEW_CATALOG && entry.message.requestId === "catalog-2")?.message;
+    assert.equal(constrainedCatalog.resourceTransfer.maxBytes, 4);
+    listener({ origin: "https://editor.example", source: editor, data: { type: SPATIAL_REVIEW_RESOURCE_REQUEST, requestId: "resource-2", resourceId } });
+    for (let attempt = 0; attempt < 20 && !received.some((entry) => entry.message.requestId === "resource-2"); attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 2));
+    }
+    const rejected = received.find((entry) => entry.message.requestId === "resource-2");
+    assert.equal(rejected.message.ok, false);
+    assert.equal(rejected.message.error, "too-large");
+    detach();
+  } finally {
+    globalThis.window = originalWindow;
+  }
 });
 
 test("builds a Three.js hierarchy from the engine-neutral asset contract", () => {

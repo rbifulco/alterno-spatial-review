@@ -10,7 +10,7 @@ function attributeArray(attribute: THREE.BufferAttribute | THREE.InterleavedBuff
   return values;
 }
 
-function materialMaps(material: THREE.Material) {
+function materialMaps(material: THREE.Material, onTexture?: (resourceId: string, texture: THREE.Texture) => void) {
   const candidate = material as THREE.MeshStandardMaterial;
   const slots = ["map", "normalMap", "bumpMap", "roughnessMap", "metalnessMap", "aoMap", "emissiveMap", "alphaMap"] as const;
   return slots.flatMap((slot) => {
@@ -21,13 +21,15 @@ function materialMaps(material: THREE.Material) {
     const raw = annotated || image?.currentSrc || image?.src;
     let sourceRef = raw;
     if (raw && typeof document !== "undefined") try { sourceRef = new URL(raw, document.baseURI).href; } catch { sourceRef = raw; }
-    return [{ slot, name: texture.name || undefined, sourceRef, wrap: texture.wrapS === THREE.RepeatWrapping || texture.wrapT === THREE.RepeatWrapping ? "repeat" as const : "clamp" as const, repeat: [texture.repeat.x, texture.repeat.y] as [number, number], offset: [texture.offset.x, texture.offset.y] as [number, number], rotation: texture.rotation, flipY: texture.flipY }];
+    const resourceId = `three-texture:${texture.uuid}`;
+    onTexture?.(resourceId, texture);
+    return [{ slot, name: texture.name || undefined, sourceRef, resourceId, wrap: texture.wrapS === THREE.RepeatWrapping || texture.wrapT === THREE.RepeatWrapping ? "repeat" as const : "clamp" as const, repeat: [texture.repeat.x, texture.repeat.y] as [number, number], offset: [texture.offset.x, texture.offset.y] as [number, number], rotation: texture.rotation, flipY: texture.flipY }];
   });
 }
 
-function serializeMaterial(material: THREE.Material, id: string, index: number, maps: boolean): AssetMaterial {
+function serializeMaterial(material: THREE.Material, id: string, index: number, maps: boolean, onTexture?: (resourceId: string, texture: THREE.Texture) => void): AssetMaterial {
   const value = material as THREE.MeshStandardMaterial;
-  return { id, name: material.name || `${material.type.replace(/Material$/, "")} ${index + 1}`, type: material.type.includes("Basic") ? "basic" : material.type.includes("Phong") ? "phong" : material.type.includes("Standard") ? "standard" : "unknown", color: hex(value.color), emissive: value.emissive ? hex(value.emissive, "#000000") : undefined, roughness: typeof value.roughness === "number" ? value.roughness : undefined, metalness: typeof value.metalness === "number" ? value.metalness : undefined, opacity: material.opacity, doubleSided: material.side === THREE.DoubleSide, wireframe: "wireframe" in material ? Boolean((material as THREE.MeshBasicMaterial).wireframe) : false, maps: maps ? materialMaps(material) : undefined };
+  return { id, name: material.name || `${material.type.replace(/Material$/, "")} ${index + 1}`, type: material.type.includes("Basic") ? "basic" : material.type.includes("Phong") ? "phong" : material.type.includes("Standard") ? "standard" : "unknown", color: hex(value.color), emissive: value.emissive ? hex(value.emissive, "#000000") : undefined, roughness: typeof value.roughness === "number" ? value.roughness : undefined, metalness: typeof value.metalness === "number" ? value.metalness : undefined, opacity: material.opacity, doubleSided: material.side === THREE.DoubleSide, wireframe: "wireframe" in material ? Boolean((material as THREE.MeshBasicMaterial).wireframe) : false, maps: maps ? materialMaps(material, onTexture) : undefined };
 }
 
 function serializeGeometry(geometry: THREE.BufferGeometry, surface: boolean): AssetGeometry | undefined {
@@ -43,7 +45,7 @@ function matrixTransform(matrix: THREE.Matrix4) {
   return { position, rotation: [rotation.x, rotation.y, rotation.z].map(THREE.MathUtils.radToDeg) as Vec3, scale: scale.toArray() as Vec3 };
 }
 
-export type Object3DAssetOptions = { assetId?: string; category?: string; tags?: string[]; animations?: string[]; profile?: "review" | "scene" };
+export type Object3DAssetOptions = { assetId?: string; category?: string; tags?: string[]; animations?: string[]; profile?: "review" | "scene"; onTexture?: (resourceId: string, texture: THREE.Texture) => void };
 
 export function assetFromObject3DRoots(roots: THREE.Object3D[], label: string, sourceRef: string, options: Object3DAssetOptions = {}): ReviewAsset3D {
   if (!roots.length) throw new Error(`Asset "${label}" has no registered Object3D roots.`);
@@ -53,7 +55,7 @@ export function assetFromObject3DRoots(roots: THREE.Object3D[], label: string, s
   const materials: AssetMaterial[] = []; const geometries: AssetGeometryDefinition[] = [];
   const nodes: AssetNode[] = [{ id: `${assetId}-root`, name: label.replace(/\.[^.]+$/, ""), type: "group", position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1], visible: true, materialIds: [], sourceRef }];
   const sourceMatrix = roots[0].matrixWorld.clone(); const inverse = sourceMatrix.clone().invert(); const surface = options.profile !== "scene";
-  const materialIdFor = (material: THREE.Material) => { const found = materialIds.get(material); if (found) return found; const index = materials.length; const id = `${assetId}-material-${slugify(material.name || material.type, "surface")}-${index + 1}`; materialIds.set(material, id); materials.push(serializeMaterial(material, id, index, surface)); return id; };
+  const materialIdFor = (material: THREE.Material) => { const found = materialIds.get(material); if (found) return found; const index = materials.length; const id = `${assetId}-material-${slugify(material.name || material.type, "surface")}-${index + 1}`; materialIds.set(material, id); materials.push(serializeMaterial(material, id, index, surface, options.onTexture)); return id; };
   const geometryIdFor = (geometry: THREE.BufferGeometry) => { const found = geometryIds.get(geometry); if (found) return found; const value = serializeGeometry(geometry, surface); if (!value) return undefined; const id = `${assetId}-geometry-${slugify(geometry.name || geometry.type, "mesh")}-${geometries.length + 1}`; geometryIds.set(geometry, id); geometries.push({ id, name: geometry.name || geometry.type, geometry: value }); return id; };
   let componentIndex = 0;
   const visit = (object: THREE.Object3D, parentId: string, path: number[], top = false) => {

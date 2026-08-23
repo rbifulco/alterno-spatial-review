@@ -4,7 +4,12 @@ import type {
   SCENE_ACTORS_SCHEMA,
   SPATIAL_REVIEW_BUNDLE_SCHEMA,
   SPATIAL_REVIEW_DISCOVERY_SCHEMA,
+  SPATIAL_REVIEW_DISCOVERY_REQUEST,
+  SPATIAL_REVIEW_DISCOVERY_RESPONSE,
   SPATIAL_REVIEW_INDEX_SCHEMA,
+  SPATIAL_REVIEW_RESOURCE_REQUEST,
+  SPATIAL_REVIEW_RESOURCE_RESPONSE,
+  SPATIAL_REVIEW_RESOURCE_TRANSFER_CAPABILITY,
 } from "./constants.js";
 
 export type Vec2 = [number, number];
@@ -17,7 +22,7 @@ export type AssetGeometry =
   | { kind: "mesh"; positions: number[]; indices?: number[]; normals?: number[]; uvs?: number[]; groups?: Array<{ start: number; count: number; materialIndex: number }> };
 
 export type AssetGeometryDefinition = { id: string; name?: string; geometry: AssetGeometry };
-export type AssetTextureMap = { slot: string; name?: string; sourceRef?: string; wrap?: "clamp" | "repeat"; repeat?: Vec2; offset?: Vec2; rotation?: number; flipY?: boolean };
+export type AssetTextureMap = { slot: string; name?: string; sourceRef?: string; resourceId?: string; wrap?: "clamp" | "repeat"; repeat?: Vec2; offset?: Vec2; rotation?: number; flipY?: boolean };
 export type AssetMaterial = { id: string; name: string; type: "standard" | "basic" | "phong" | "unknown"; color: string; emissive?: string; roughness?: number; metalness?: number; opacity: number; doubleSided: boolean; wireframe?: boolean; maps?: AssetTextureMap[] };
 export type AssetNode = { id: string; name: string; type: "group" | "mesh" | "line" | "points"; parentId?: string; position: Vec3; rotation: Vec3; scale: Vec3; visible: boolean; geometry?: AssetGeometry; geometryId?: string; materialIds: string[]; instances?: number[][]; sourceRef?: string };
 export type AssetSurfaceAnchor = { nodeId: string; instanceId?: number; localPosition: Vec3; localNormal?: Vec3; uv?: Vec2 };
@@ -35,3 +40,60 @@ export type SpatialReviewIndex = { schema: typeof SPATIAL_REVIEW_INDEX_SCHEMA | 
 
 export type SpatialReviewDiscovery = { schema: typeof SPATIAL_REVIEW_DISCOVERY_SCHEMA; version: 1; name: string; websiteUrl: string; scene?: string; assets?: string; liveCapture?: string };
 export type SpatialReviewBundle = { schema: typeof SPATIAL_REVIEW_BUNDLE_SCHEMA; websiteUrl: string; discoveryUrl: string; discovery: SpatialReviewDiscovery; scene?: unknown; assets?: unknown };
+
+export type SpatialReviewDiscoveryRequestMessage = {
+  type: typeof SPATIAL_REVIEW_DISCOVERY_REQUEST;
+  requestId: string;
+};
+export type SpatialReviewDiscoveryResponseMessage = {
+  type: typeof SPATIAL_REVIEW_DISCOVERY_RESPONSE;
+  requestId: string;
+  discoveryUrl: string;
+  discovery: SpatialReviewDiscovery;
+};
+
+export type SpatialReviewResourceTransferCapability = typeof SPATIAL_REVIEW_RESOURCE_TRANSFER_CAPABILITY;
+export type SpatialReviewResourceTransferOffer = {
+  capability: SpatialReviewResourceTransferCapability;
+  maxBytes: number;
+};
+export type SpatialReviewReadyMessage = {
+  type: string;
+  buildId: string;
+  actors: number;
+  capabilities?: string[];
+  resourceTransfer?: SpatialReviewResourceTransferOffer;
+};
+export type SpatialReviewCatalogRequest = {
+  type: string;
+  profile?: SpatialReviewProfile;
+  requestId?: string;
+  resourceTransfer?: SpatialReviewResourceTransferOffer;
+};
+export type SpatialReviewCatalogMessage = {
+  type: string;
+  profile: SpatialReviewProfile;
+  requestId?: string;
+  payload: SpatialReviewIndex;
+  resourceTransfer?: SpatialReviewResourceTransferOffer;
+};
+export type SpatialReviewResourceRequest = {
+  type: typeof SPATIAL_REVIEW_RESOURCE_REQUEST;
+  requestId: string;
+  resourceId: string;
+};
+export type SpatialReviewResourceResponse = {
+  type: typeof SPATIAL_REVIEW_RESOURCE_RESPONSE;
+  requestId: string;
+  resourceId: string;
+  ok: true;
+  contentType: string;
+  bytes: ArrayBuffer;
+} | {
+  type: typeof SPATIAL_REVIEW_RESOURCE_RESPONSE;
+  requestId: string;
+  resourceId: string;
+  ok: false;
+  error: "not-found" | "unavailable" | "too-large";
+  message: string;
+};
