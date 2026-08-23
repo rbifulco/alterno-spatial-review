@@ -593,24 +593,29 @@ npm test
 npm run build
 ```
 
-After deploying, validate the public URL:
+If Step 10 published the optional discovery document, validate the public URL:
 
 ```sh
 npx @alterno-dev/spatial-review-cli validate https://project.example.com
 ```
 
 The command should report whether scene, asset, and live transports are
-available.
+available. The CLI is a non-browser consumer, so it cannot use the
+`postMessage` discovery bridge.
 
 Also perform these behavioral checks:
 
-1. `/.well-known/spatial-review.json` returns JSON with status 200.
-2. An editor on another origin can discover `liveCapture` through
-   `postMessage` while the discovery response omits CORS headers.
-3. Every advertised scene or asset URL intended as a static fallback returns public JSON.
+1. An editor on another origin can discover `liveCapture` through
+   `postMessage` when `/.well-known/spatial-review.json` is absent or its
+   response omits CORS headers.
+2. If the optional discovery document is published, it returns JSON with
+   status 200 and passes the CLI validator.
+3. Every advertised scene or asset URL intended as a static fallback returns
+   public JSON.
 4. A review tool on another localhost port receives both `scene` and
    `review` profiles.
-5. An unlisted production origin cannot retrieve discovery or the live catalog.
+5. An unlisted production origin cannot receive a browser discovery response or
+   retrieve the live catalog.
 6. Rebuilding without content changes preserves actor IDs, asset IDs, component
    names, hierarchy order, and source references.
 7. Repeated placements share an `assetId` but retain unique `actorId` values.
@@ -624,7 +629,8 @@ When finished, report:
 
 - package version installed;
 - files added or changed;
-- discovery URL and advertised transports;
+- browser discovery entry URL, advertised transports, and any optional
+  well-known discovery URL;
 - number and categories of registered actors;
 - how repeated assets were represented;
 - how component names and source references were stabilized;
