@@ -18,7 +18,11 @@ Alterno Spatial Review uses Changesets and keeps the protocol, SDK, validator, a
 
 4. Review all package versions, generated changelogs, internal dependency ranges, and migration notes.
 5. Run the test and package checks again.
-6. Commit the prepared release as `chore(release): version packages` and merge it through the normal protected-branch flow.
+6. Commit the prepared release as `chore(release): version packages` on a
+   same-repository `chore/release-*` branch and merge it through the normal
+   protected-branch flow. CI reserves that branch prefix for release PRs and
+   skips the contributor Changeset check because versioning has already
+   consumed the reviewed Changeset.
 
 ## Publish
 
