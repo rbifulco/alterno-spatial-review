@@ -36,7 +36,74 @@ export type ReviewAsset3D = { id: string; name: string; sourceRef?: string; cate
 export type AssetReviewDocument3D = { schema: typeof ASSET_REVIEW_SCHEMA; id: string; name: string; units: "m"; source?: { label?: string; url?: string; importedAt?: string; generator?: string }; assets: ReviewAsset3D[] };
 
 export type SceneReviewActor = { actorId: string; assetId: string; name: string; sourceRef: string; category: string; transform: Transform3D; bounds: { center: Vec3; size: Vec3 } };
-export type SpatialReviewIndex = { schema: typeof SPATIAL_REVIEW_INDEX_SCHEMA | typeof LEGACY_SPATIAL_REVIEW_INDEX_SCHEMA; buildId: string; generatedAt: string; scene: { schema: typeof SCENE_ACTORS_SCHEMA; actors: SceneReviewActor[] }; assetCatalog: AssetReviewDocument3D };
+
+/** Stable semantic role of an authored point. Unlike evaluated samples, these
+ * points are suitable targets for review comments and spatial edit proposals. */
+export type NavigationCurvePointRole = "stop" | "through" | "control" | "control-in" | "control-out";
+export type NavigationCurvePoint = {
+  id: string;
+  position: Vec3;
+  role: NavigationCurvePointRole;
+  /** Connects an endpoint to the canonical navigation stop it represents. */
+  stopId?: string;
+  /** Durable code symbol or content path an agent can use to implement feedback. */
+  sourceRef?: string;
+  /** False when the point is explanatory output rather than authored input. */
+  editable?: boolean;
+};
+
+/** Engine-neutral curve definitions. `sampled` is the read-only escape hatch
+ * for custom runtime curves that cannot be represented by the authored forms. */
+export type NavigationCurve3 =
+  | { kind: "line"; points: [NavigationCurvePoint, NavigationCurvePoint] }
+  | { kind: "quadratic-bezier"; points: [NavigationCurvePoint, NavigationCurvePoint, NavigationCurvePoint] }
+  | { kind: "cubic-bezier"; points: [NavigationCurvePoint, NavigationCurvePoint, NavigationCurvePoint, NavigationCurvePoint] }
+  | { kind: "catmull-rom"; points: NavigationCurvePoint[]; closed?: boolean; curveType?: "centripetal" | "chordal" | "catmullrom"; tension?: number }
+  | { kind: "sampled"; samples: Vec3[] };
+
+export type NavigationAim =
+  | { kind: "curve"; curve: NavigationCurve3 }
+  | { kind: "path-facing"; lookDistance: number; maximumPitchRatio?: number; turnFraction?: number }
+  | { kind: "fixed-target"; target: Vec3 };
+
+export type NavigationStop = {
+  id: string;
+  name: string;
+  camera: Vec3;
+  target: Vec3;
+  fov: number;
+  sourceRef?: string;
+};
+
+export type NavigationSegment = {
+  id: string;
+  fromStopId: string;
+  toStopId: string;
+  camera: NavigationCurve3;
+  aim: NavigationAim;
+  /** Relative input or timeline span; intentionally independent of distance. */
+  weight: number;
+  /** Normalized segment progress at which the stop-to-stop FOV blend begins. */
+  lensStart?: number;
+  sourceRef?: string;
+};
+
+export type NavigationSequence = {
+  id: string;
+  name: string;
+  sourceRef?: string;
+  category?: string;
+  stops: NavigationStop[];
+  segments: NavigationSegment[];
+};
+
+export type SpatialReviewScene = {
+  schema: typeof SCENE_ACTORS_SCHEMA;
+  actors: SceneReviewActor[];
+  navigationSequences?: NavigationSequence[];
+};
+
+export type SpatialReviewIndex = { schema: typeof SPATIAL_REVIEW_INDEX_SCHEMA | typeof LEGACY_SPATIAL_REVIEW_INDEX_SCHEMA; buildId: string; generatedAt: string; scene: SpatialReviewScene; assetCatalog: AssetReviewDocument3D };
 
 export type SpatialReviewDiscovery = { schema: typeof SPATIAL_REVIEW_DISCOVERY_SCHEMA; version: 1; name: string; websiteUrl: string; scene?: string; assets?: string; liveCapture?: string };
 export type SpatialReviewBundle = { schema: typeof SPATIAL_REVIEW_BUNDLE_SCHEMA; websiteUrl: string; discoveryUrl: string; discovery: SpatialReviewDiscovery; scene?: unknown; assets?: unknown };
@@ -61,6 +128,7 @@ export type SpatialReviewReadyMessage = {
   type: string;
   buildId: string;
   actors: number;
+  navigationSequences?: number;
   capabilities?: string[];
   resourceTransfer?: SpatialReviewResourceTransferOffer;
 };

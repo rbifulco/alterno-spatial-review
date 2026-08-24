@@ -26,7 +26,7 @@ export function attachSceneAssetRegistryBridge(registry: SceneAssetRegistry, opt
   const maxResourceBytes = Math.floor(Number.isFinite(options.maxResourceBytes) && Number(options.maxResourceBytes) > 0 ? Number(options.maxResourceBytes) : DEFAULT_MAX_RESOURCE_BYTES);
   const resourceTransfer = { capability: SPATIAL_REVIEW_RESOURCE_TRANSFER_CAPABILITY, maxBytes: maxResourceBytes } satisfies SpatialReviewResourceTransferOffer;
   const peerResourceLimits = new WeakMap<Window, number>();
-  const ready = { type: SPATIAL_REVIEW_READY, buildId: registry.buildId, actors: registry.size, capabilities: [SPATIAL_REVIEW_RESOURCE_TRANSFER_CAPABILITY], resourceTransfer };
+  const ready = { type: SPATIAL_REVIEW_READY, buildId: registry.buildId, actors: registry.size, navigationSequences: registry.navigationSize, capabilities: [SPATIAL_REVIEW_RESOURCE_TRANSFER_CAPABILITY], resourceTransfer };
   const postReady = () => { if (window.parent !== window) { window.parent.postMessage(ready, "*"); window.parent.postMessage({ ...ready, type: LEGACY_SPATIAL_REVIEW_READY }, "*"); } window.opener?.postMessage(ready, "*"); window.opener?.postMessage({ ...ready, type: LEGACY_SPATIAL_REVIEW_READY }, "*"); };
   const postResource = (target: Window, origin: string, response: SpatialReviewResourceResponse, transfer: Transferable[] = []) => {
     try { target.postMessage(response, origin, transfer); } catch { /* The requesting frame or popup may have closed. */ }

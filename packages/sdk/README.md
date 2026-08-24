@@ -58,3 +58,44 @@ byte limit during the catalog handshake and enforce the lower offer.
 The package also exports `buildThreeAsset()`, `makeAssetGeometry()`, and
 `disposeThreeAsset()` for websites that render an engine-neutral
 `ReviewAsset3D` contract back into a Three.js hierarchy.
+
+## Register camera journeys
+
+`registerNavigationSequence()` exposes an engine-neutral, semantically named
+camera journey alongside registered scene actors. A sequence may use linear,
+quadratic Bézier, cubic Bézier, Catmull–Rom, or read-only sampled curves. It also
+describes how the camera aims, how long each segment feels, and when its FOV
+transition begins.
+
+```ts
+registry.registerNavigationSequence({
+  id: "arrival",
+  name: "Arrival journey",
+  sourceRef: "src/scene/rail.ts#arrivalJourney",
+  stops: [
+    { id: "outside", name: "Outside", camera: [0, 1.7, 6], target: [0, 1.5, 0], fov: 50 },
+    { id: "inside", name: "Inside", camera: [4, 1.7, 1], target: [0, 1.5, 0], fov: 44 },
+  ],
+  segments: [{
+    id: "outside--inside",
+    fromStopId: "outside",
+    toStopId: "inside",
+    weight: 1.4,
+    lensStart: 0.2,
+    camera: {
+      kind: "cubic-bezier",
+      points: [
+        { id: "outside-camera", role: "stop", stopId: "outside", position: [0, 1.7, 6] },
+        { id: "outside-out", role: "control-out", position: [1, 1.7, 6], sourceRef: "src/scene/rail.ts#outsideOut" },
+        { id: "inside-in", role: "control-in", position: [3, 1.7, 2], sourceRef: "src/scene/rail.ts#insideIn" },
+        { id: "inside-camera", role: "stop", stopId: "inside", position: [4, 1.7, 1] },
+      ],
+    },
+    aim: { kind: "path-facing", lookDistance: 6, turnFraction: 0.18 },
+  }],
+});
+```
+
+Use stable IDs and `sourceRef` values for every authored control that should be
+actionable. Set `editable: false` on explanatory points, or publish a `sampled`
+curve when the runtime curve cannot be mapped back to authored controls.
