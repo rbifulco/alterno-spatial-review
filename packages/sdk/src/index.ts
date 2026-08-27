@@ -4,3 +4,4 @@ export { attachSpatialReviewDiscoveryBridge, type SpatialReviewDiscoveryBridgeOp
 export { assetFromObject3DRoots, type Object3DAssetOptions } from "./serializer.js";
 export * from "@alterno-dev/spatial-review-protocol";
 export * from "./runtime.js";
+export { prepareAssetTransfer } from "./geometry-transfer.js";

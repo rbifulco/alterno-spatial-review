@@ -14,6 +14,10 @@ export const SPATIAL_REVIEW_DISCOVERY_RESPONSE = "alterno:spatial-review:discove
 export const SPATIAL_REVIEW_RESOURCE_REQUEST = "alterno:spatial-review:resource-request" as const;
 export const SPATIAL_REVIEW_RESOURCE_RESPONSE = "alterno:spatial-review:resource-response" as const;
 export const SPATIAL_REVIEW_RESOURCE_TRANSFER_CAPABILITY = "resource-transfer-v1" as const;
+export const SPATIAL_REVIEW_PROGRESSIVE_CAPABILITY = "progressive-assets-v1" as const;
+export const SPATIAL_REVIEW_GEOMETRY_TRANSFER_CAPABILITY = "geometry-transfer-v1" as const;
+export const SPATIAL_REVIEW_ASSET_REQUEST = "alterno:spatial-review:asset-request" as const;
+export const SPATIAL_REVIEW_ASSET_RESPONSE = "alterno:spatial-review:asset-response" as const;
 
 /** Temporary wire aliases used only while deployed Sole/editor builds migrate. */
 export const LEGACY_SPATIAL_REVIEW_READY = "sole:scene-asset-registry:ready" as const;

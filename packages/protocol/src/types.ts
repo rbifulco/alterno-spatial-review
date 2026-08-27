@@ -16,10 +16,13 @@ export type Vec2 = [number, number];
 export type Vec3 = [number, number, number];
 export type Transform3D = { position: Vec3; rotation: Vec3; scale: Vec3 };
 export type SpatialReviewProfile = "scene" | "review";
+/** JSON documents use number arrays. Negotiated live transfers may use owned buffers. */
+export type GeometryValues = number[] | Float32Array;
+export type GeometryIndices = number[] | Uint16Array | Uint32Array;
 
 export type AssetGeometry =
   | { kind: "primitive"; primitive: "box" | "sphere" | "cylinder"; dimensions: Vec3; segments?: number }
-  | { kind: "mesh"; positions: number[]; indices?: number[]; normals?: number[]; uvs?: number[]; groups?: Array<{ start: number; count: number; materialIndex: number }> };
+  | { kind: "mesh"; positions: GeometryValues; indices?: GeometryIndices; normals?: GeometryValues; uvs?: GeometryValues; groups?: Array<{ start: number; count: number; materialIndex: number }> };
 
 export type AssetGeometryDefinition = { id: string; name?: string; geometry: AssetGeometry };
 export type AssetTextureMap = { slot: string; name?: string; sourceRef?: string; resourceId?: string; wrap?: "clamp" | "repeat"; repeat?: Vec2; offset?: Vec2; rotation?: number; flipY?: boolean };
@@ -137,6 +140,9 @@ export type SpatialReviewCatalogRequest = {
   profile?: SpatialReviewProfile;
   requestId?: string;
   resourceTransfer?: SpatialReviewResourceTransferOffer;
+  /** Opt in to bounds/metadata first, then request individual asset families. */
+  progressive?: boolean;
+  geometryTransfer?: { capability: "geometry-transfer-v1"; maxBytes: number };
 };
 export type SpatialReviewCatalogMessage = {
   type: string;
@@ -144,7 +150,24 @@ export type SpatialReviewCatalogMessage = {
   requestId?: string;
   payload: SpatialReviewIndex;
   resourceTransfer?: SpatialReviewResourceTransferOffer;
+  progressive?: boolean;
+  geometryTransfer?: { capability: "geometry-transfer-v1"; maxBytes: number };
 };
+
+export type SpatialReviewAssetRequest = {
+  type: "alterno:spatial-review:asset-request";
+  requestId: string;
+  buildId: string;
+  assetId: string;
+  profile: SpatialReviewProfile;
+};
+export type SpatialReviewAssetResponse = {
+  type: "alterno:spatial-review:asset-response";
+  requestId: string;
+  buildId: string;
+  assetId: string;
+  profile: SpatialReviewProfile;
+} & ({ ok: true; asset: ReviewAsset3D } | { ok: false; error: "not-found" | "too-large" | "unavailable" | "busy" });
 export type SpatialReviewResourceRequest = {
   type: typeof SPATIAL_REVIEW_RESOURCE_REQUEST;
   requestId: string;
