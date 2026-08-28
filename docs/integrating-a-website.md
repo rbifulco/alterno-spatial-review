@@ -70,7 +70,8 @@ attachSceneAssetRegistryBridge(registry, {
 A navigation sequence carries camera and aim trajectories, named stops,
 relative segment timing, and FOV transitions. Keep its stop, segment, and point
 IDs stable and give authored controls source references so feedback can map
-back to code. The complete contract and example are in the repository README.
+back to code. Follow [Export navigation sequences](../agents/exporting-navigation-sequences.md)
+for the complete semantic mapping and verification procedure.
 
 After deployment, open the website directly in the hosted editor:
 

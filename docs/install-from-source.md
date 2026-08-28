@@ -262,5 +262,5 @@ Expected output:
 function
 ```
 
-Then continue with the
-[step-by-step integration guide](install-with-ai.md#step-3-create-one-integration-module).
+Then follow the [integration workflow](../agents/install.md), retaining the
+completed package installation and checking its permission and review-structure steps.

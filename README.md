@@ -174,6 +174,8 @@ Navigation sequences are semantic camera journeys rather than generic splines.
 They keep camera position, aim, journey stops, segment timing, lens transitions,
 stable point IDs, and source references together so review tools can return
 spatially anchored feedback an agent can apply to the original implementation.
+See [Export navigation sequences](agents/exporting-navigation-sequences.md)
+for the agent-facing extraction and presentation guide.
 
 ### 3. Open the hosted editor
 
@@ -210,8 +212,9 @@ npx @alterno-dev/spatial-review-cli validate https://project.example
 
 > [!TIP]
 > Using an AI coding agent? Point it to the
-> [step-by-step installation guide](docs/install-with-ai.md). It includes the
-> required code, validation steps, and presentation rules for useful feedback.
+> [installation and update workflow](agents/install.md). It covers adding the SDK
+> to an existing website or refining its integration and exports against updated
+> guidance, then verifying feedback in each applicable editor.
 
 <details>
 <summary><strong>Install directly from source instead of npm</strong></summary>
@@ -236,23 +239,14 @@ covers active development, vendoring, CI, and updates.
 
 ## Present scenes and assets so intent remains actionable
 
-A good integration exposes design intent, not merely render data:
+Structure review around placement, journey, and construction decisions. A
+reviewer should be able to move one gate, adjust its arrival reveal, and comment
+on its arch as distinct instructions that lead to the correct source definitions.
 
-- Register one coherent, reviewable object per actor instead of the entire
-  world as one asset.
-- Give actors, assets, groups, meshes, and materials stable semantic names.
-- Use one `assetId` for repeated instances of the same design and a distinct
-  `actorId` for each placement.
-- Keep component hierarchy and child ordering stable so component identities
-  survive rebuilds.
-- Set `sourceRef` to a durable code symbol or content path an agent can find.
-- Preserve texture source references when available. Live integrations can
-  transfer texture bytes over `postMessage`; public CORS access is optional.
-- Include enough context to judge composition, but exclude helpers, debug
-  meshes, secrets, and irrelevant implementation detail.
-
-Read [Present scenes and assets for effective review](docs/install-with-ai.md#present-scenes-and-assets-for-effective-review)
-for detailed patterns and examples.
+Before choosing or changing actor boundaries, asset hierarchy, or source mappings,
+read [Structuring for review](agents/structuring-for-review.md). For authored
+camera or scroll routes, also follow
+[Export navigation sequences](agents/exporting-navigation-sequences.md).
 
 ## Four packages implement one contract
 
@@ -271,7 +265,9 @@ on what each contract means.
 
 | Goal | Guide |
 | --- | --- |
-| Ask an AI agent to integrate a website | [Install with an AI coding agent](docs/install-with-ai.md) |
+| Add or refine review support on an existing website | [Install or update Spatial Review](agents/install.md) |
+| Choose actor boundaries, asset hierarchy, and source mappings | [Structuring for review](agents/structuring-for-review.md) |
+| Export a camera or scroll spline for review | [Export navigation sequences](agents/exporting-navigation-sequences.md) |
 | Develop against a local checkout | [Install from source](docs/install-from-source.md) |
 | Understand manifests, origins, and capture | [Website integration reference](docs/integrating-a-website.md) |
 | Propose an interoperable contract change | [Protocol change process](docs/governance/protocol-changes.md) |
