@@ -1,4 +1,4 @@
-import { ASSET_REVIEW_SCHEMA, SPATIAL_REVIEW_INDEX_SCHEMA, normalizeSpatialReviewDiscovery, type AssetReviewDocument3D, type SpatialReviewDiscovery, type SpatialReviewIndex } from "@alterno-dev/spatial-review-protocol";
+import { ASSET_REVIEW_SCHEMA, SPATIAL_REVIEW_INDEX_SCHEMA, normalizeSpatialReviewDiscovery, validateSceneOwnership, type AssetReviewDocument3D, type SpatialReviewDiscovery, type SpatialReviewIndex } from "@alterno-dev/spatial-review-protocol";
 
 export type ValidationResult<T> = { ok: true; value: T } | { ok: false; errors: string[] };
 const object = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -127,6 +127,7 @@ export function validateReviewIndex(value: unknown): ValidationResult<SpatialRev
   if (!object(value)) errors.push("Review index must be an object.");
   else {
     if (value.schema !== SPATIAL_REVIEW_INDEX_SCHEMA) errors.push(`schema must be ${SPATIAL_REVIEW_INDEX_SCHEMA}.`);
+    if (object(value.scene)) errors.push(...validateSceneOwnership(value.scene));
     if (!object(value.scene) || !Array.isArray(value.scene.actors)) errors.push("scene.actors must be an array.");
     else if (value.scene.navigationSequences !== undefined) {
       if (!Array.isArray(value.scene.navigationSequences)) errors.push("scene.navigationSequences must be an array when present.");

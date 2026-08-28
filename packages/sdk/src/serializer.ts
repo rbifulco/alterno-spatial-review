@@ -48,7 +48,10 @@ function matrixTransform(matrix: THREE.Matrix4) {
   return { position, rotation: [rotation.x, rotation.y, rotation.z].map(THREE.MathUtils.radToDeg) as Vec3, scale: scale.toArray() as Vec3 };
 }
 
-export type Object3DAssetOptions = { assetId?: string; category?: string; tags?: string[]; animations?: string[]; profile?: "review" | "scene"; geometryEncoding?: "json" | "typed"; onTexture?: (resourceId: string, texture: THREE.Texture) => void };
+export type Object3DAssetOptions = { assetId?: string; category?: string; tags?: string[]; animations?: string[]; profile?: "review" | "scene"; geometryEncoding?: "json" | "typed"; onTexture?: (resourceId: string, texture: THREE.Texture) => void;
+  /** Separate a single placement root's visibility from its shared design.
+   * Multi-root component visibility and all descendant flags are preserved. */
+  ignoreRootVisibility?: boolean };
 
 export function assetFromObject3DRoots(roots: THREE.Object3D[], label: string, sourceRef: string, options: Object3DAssetOptions = {}): ReviewAsset3D {
   if (!roots.length) throw new Error(`Asset "${label}" has no registered Object3D roots.`);
@@ -68,7 +71,7 @@ export function assetFromObject3DRoots(roots: THREE.Object3D[], label: string, s
     const transform = top ? matrixTransform(new THREE.Matrix4().multiplyMatrices(inverse, object.matrixWorld)) : { position: object.position.clone(), rotation: [object.rotation.x, object.rotation.y, object.rotation.z].map(THREE.MathUtils.radToDeg) as Vec3, scale: object.scale.toArray() as Vec3 };
     const candidateMaterials = Array.isArray(renderable.material) ? renderable.material : renderable.material ? [renderable.material] : [];
     const instances = object instanceof THREE.InstancedMesh ? Array.from({ length: object.count }, (_, index) => { const matrix = new THREE.Matrix4(); object.getMatrixAt(index, matrix); return matrix.toArray(); }) : undefined;
-    nodes.push({ id, name, type: object instanceof THREE.Line ? "line" : object instanceof THREE.Points ? "points" : geometryId ? "mesh" : "group", parentId, position: transform.position.toArray() as Vec3, rotation: transform.rotation, scale: transform.scale, visible: object.visible, geometryId, materialIds: candidateMaterials.map(materialIdFor), instances, sourceRef: `${sourceRef}#${id}` });
+    nodes.push({ id, name, type: object instanceof THREE.Line ? "line" : object instanceof THREE.Points ? "points" : geometryId ? "mesh" : "group", parentId, position: transform.position.toArray() as Vec3, rotation: transform.rotation, scale: transform.scale, visible: top && roots.length === 1 && options.ignoreRootVisibility ? true : object.visible, geometryId, materialIds: candidateMaterials.map(materialIdFor), instances, sourceRef: `${sourceRef}#${id}` });
     object.children.forEach((child, index) => visit(child, id, [...path, index]));
   };
   roots.forEach((root, index) => visit(root, `${assetId}-root`, [index], true));

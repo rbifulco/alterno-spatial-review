@@ -65,9 +65,11 @@ current guidance, identify gaps, and record a compact integration plan:
 | --- | --- |
 | Integration | First installation or refinement; current SDK and exports, guidance gaps, required changes |
 | Actors | Independent selections, placement IDs, relevant surrounding context |
+| Ownership | Explicit place/room assemblies, parents for loose contents and fixtures, World/Street exceptions, uniform assembly scale, capability support |
 | Assets | Shared designs, distinct variants, component hierarchy, materials |
 | Journeys | Applicable routes, meaningful stops, authored camera and aim inputs |
 | Source mapping | Source definitions for placements, components, and path controls; coordinate conversions |
+| Migration | Stable IDs across reparenting; explicit old-to-new target mapping or a new baseline when changing component/actor boundaries |
 | Capture | Entry URL, readiness condition, reproducible scene state, refresh lifecycle |
 
 For the website's authored camera, scroll, or guided-view motion, also read and
@@ -122,6 +124,7 @@ Export each applicable review scale through the registry:
 | Website content | Required review representation |
 | --- | --- |
 | Scene composition | Independent actors with stable placement IDs, asset links, transforms, bounds, and enough context to judge relationships |
+| Places and contents | Transform-only assemblies with explicit parent-local poses; owned actors retain separate placement IDs and shared asset links |
 | Asset construction | Canonical asset definitions with meaningful component hierarchy, local transforms, geometry, materials, and available textures |
 | Authored navigation | Sequences built from runtime stops, camera and aim controls, timing, and FOV; follow the navigation guide for each route |
 
@@ -181,6 +184,13 @@ spatialReviewRegistry.register({
 `gate` is the root already used by the website. For one actor assembled from
 sibling roots, pass `roots: gateParts`; their order and first-root coordinate
 frame must remain stable. Register journeys using the navigation guide.
+
+For ownership-capable SDK versions, register buildings/rooms with
+`registerAssembly()` and add `parentAssemblyId` to contained actor registrations.
+Follow the [ownership contract](../docs/ownership-first-scene.md), including its
+unreleased status and acceptance gate. An assembly root supplies only a pose;
+do not also register its full rendered subtree when its contents already have
+actor registrations. Do not infer ownership from attachment, category, or distance.
 
 Start discovery on the ordinary entry page. Start capture after all intended
 registrations are ready. The advertised capture URL must construct that same
@@ -271,6 +281,7 @@ Exercise one representative interaction in each applicable editor:
 | Editor | Interaction and exported result |
 | --- | --- |
 | Scene | Select a placement, move it, and add a comment. The export identifies that actor and the intended transform; another placement of the same asset remains distinct. |
+| Scene ownership | Move/rotate an assembly; its structure, fixtures, and loose contents follow while unrelated actors do not. Select/move a child, reparent with world pose preserved, hide/show the owner without losing child choices, and verify one parent operation rather than child world deltas. Refresh and confirm no double application. |
 | Path | Scrub a journey, move an authored handle, and comment on a view. The export identifies the sequence, segment, point or view anchor, and source. Complete the navigation guide's checks for every exported journey. |
 | Asset | Open a canonical asset, select a component, adjust it, and pin a surface comment. The export identifies the asset, part, local transform, and surface anchor. |
 

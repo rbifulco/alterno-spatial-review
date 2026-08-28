@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Spatial Review scene actors with optional ownership",
+  "type": "object",
+  "required": ["schema", "actors"],
+  "properties": {
+    "schema": { "const": "scene-actors/v1" },
+    "actors": { "type": "array", "items": { "$ref": "#/$defs/actor" } },
+    "assemblies": { "type": "array", "maxItems": 10000, "items": { "$ref": "#/$defs/assembly" } },
+    "ownership": {
+      "type": "object",
+      "required": ["capability", "mode"],
+      "properties": {
+        "capability": { "const": "scene-assemblies-v1" },
+        "mode": { "enum": ["hierarchical", "flattened"] },
+        "reason": { "type": "string" }
+      }
+    },
+    "navigationSequences": { "type": "array" }
+  },
+  "allOf": [
+    {
+      "if": { "anyOf": [{ "required": ["assemblies"] }, { "properties": { "actors": { "contains": { "anyOf": [{ "required": ["parentAssemblyId"] }, { "required": ["localTransform"] }] } } }, "required": ["actors"] }] },
+      "then": { "required": ["ownership", "assemblies"], "properties": { "ownership": { "properties": { "mode": { "const": "hierarchical" } } } } }
+    },
+    {
+      "if": { "required": ["ownership"], "properties": { "ownership": { "required": ["mode"], "properties": { "mode": { "const": "hierarchical" } } } } },
+      "then": { "required": ["assemblies"], "properties": { "actors": { "maxItems": 100000, "items": { "required": ["localTransform"] } } } }
+    },
+    {
+      "if": { "required": ["ownership"], "properties": { "ownership": { "required": ["mode"], "properties": { "mode": { "const": "flattened" } } } } },
+      "then": { "not": { "required": ["assemblies"] }, "properties": { "actors": { "items": { "not": { "anyOf": [{ "required": ["parentAssemblyId"] }, { "required": ["localTransform"] }] } } } } }
+    }
+  ],
+  "$defs": {
+    "id": { "type": "string", "minLength": 1, "maxLength": 500, "pattern": "\\S" },
+    "vec3": { "type": "array", "minItems": 3, "maxItems": 3, "items": { "type": "number" } },
+    "transform": {
+      "type": "object", "required": ["position", "rotation", "scale"],
+      "properties": { "position": { "$ref": "#/$defs/vec3" }, "rotation": { "$ref": "#/$defs/vec3" }, "scale": { "$ref": "#/$defs/vec3" } }
+    },
+    "bounds": {
+      "type": "object", "required": ["center", "size"],
+      "properties": { "center": { "$ref": "#/$defs/vec3" }, "size": { "allOf": [{ "$ref": "#/$defs/vec3" }, { "items": { "minimum": 0 } }] } }
+    },
+    "actor": {
+      "type": "object", "required": ["actorId", "assetId", "name", "sourceRef", "category", "transform", "bounds"],
+      "properties": {
+        "actorId": { "$ref": "#/$defs/id" }, "assetId": { "$ref": "#/$defs/id" },
+        "name": { "type": "string" }, "sourceRef": { "type": "string" }, "category": { "type": "string" },
+        "transform": { "$ref": "#/$defs/transform", "description": "World-space pose; unchanged from the original v1 field." },
+        "bounds": { "$ref": "#/$defs/bounds" }, "parentAssemblyId": { "$ref": "#/$defs/id" },
+        "localTransform": { "$ref": "#/$defs/transform" }, "visible": { "type": "boolean" }
+      }
+    },
+    "assembly": {
+      "type": "object", "required": ["assemblyId", "name", "sourceRef", "localTransform", "transform", "bounds", "visible"],
+      "properties": {
+        "assemblyId": { "$ref": "#/$defs/id" }, "name": { "type": "string", "minLength": 1 }, "sourceRef": { "$ref": "#/$defs/id" },
+        "parentAssemblyId": { "$ref": "#/$defs/id" }, "localTransform": { "$ref": "#/$defs/transform" },
+        "transform": { "$ref": "#/$defs/transform" }, "bounds": { "$ref": "#/$defs/bounds" }, "visible": { "type": "boolean" }
+      },
+      "$comment": "validateSceneOwnership additionally checks unique IDs, parent references, cycles, depth, world/local consistency, invertibility, and positive uniform assembly scales."
+    }
+  }
+}
