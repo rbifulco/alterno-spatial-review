@@ -230,6 +230,26 @@ Do not register every triangle or leaf as a separate actor. Do not register the
 entire `THREE.Scene` as one asset. Choose roots at the scale on which a person
 can express a meaningful design decision.
 
+### Optional: register authored camera journeys
+
+When the experience has deliberate camera or scroll motion, register that
+motion as a navigation sequence. Do not flatten it into one anonymous sampled
+line. Preserve the camera curve, aim behavior, named journey stops, relative
+segment weights, and FOV transition timing.
+
+```ts
+spatialReviewRegistry.registerNavigationSequence(arrivalJourneyForReview);
+```
+
+Build `arrivalJourneyForReview` next to the code that defines the real journey.
+Give every stop, segment, and editable curve point a stable ID, and attach the
+closest durable code symbol as its `sourceRef`. Reuse each stop ID on the
+authored endpoints that represent it. Use `editable: false` for explanatory
+controls and use a `sampled` curve only when a custom runtime curve cannot map
+back to authored inputs. This lets the editor export a small instruction such
+as “move `doorway-camera-out` to this position” instead of returning an opaque
+replacement polyline.
+
 ## Step 5: represent repeated assets correctly
 
 `actorId` identifies one placement in the scene. `assetId` identifies the

@@ -135,6 +135,30 @@ registry.register({
   tags: ["building", "primary"],
 });
 
+registry.registerNavigationSequence({
+  id: "arrival-journey",
+  name: "Arrival journey",
+  sourceRef: "src/scene/rail.ts#arrivalJourney",
+  stops: [
+    { id: "entry", name: "Entry", camera: [0, 1.7, 6], target: [0, 1.5, 0], fov: 50 },
+    { id: "court", name: "Courtyard", camera: [4, 1.7, 1], target: [0, 1.5, 0], fov: 44 },
+  ],
+  segments: [{
+    id: "entry--court",
+    fromStopId: "entry",
+    toStopId: "court",
+    weight: 1,
+    camera: {
+      kind: "line",
+      points: [
+        { id: "entry-camera", role: "stop", stopId: "entry", position: [0, 1.7, 6] },
+        { id: "court-camera", role: "stop", stopId: "court", position: [4, 1.7, 1] },
+      ],
+    },
+    aim: { kind: "fixed-target", target: [0, 1.5, 0] },
+  }],
+});
+
 attachSceneAssetRegistryBridge(registry, {
   // Use false to deny the official editor; add self-hosted tools separately.
   allowOfficialEditor: true,
@@ -145,6 +169,11 @@ attachSceneAssetRegistryBridge(registry, {
 authorization is visible in source. Loopback origins are accepted during local
 development. Additional production editors must be listed explicitly in
 `allowedOrigins`.
+
+Navigation sequences are semantic camera journeys rather than generic splines.
+They keep camera position, aim, journey stops, segment timing, lens transitions,
+stable point IDs, and source references together so review tools can return
+spatially anchored feedback an agent can apply to the original implementation.
 
 ### 3. Open the hosted editor
 

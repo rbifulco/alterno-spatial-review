@@ -59,10 +59,18 @@ registry.register({
   root: mainBuilding,
 });
 
+// Optional: expose an authored camera journey for spatial motion review.
+registry.registerNavigationSequence(arrivalJourneyForReview);
+
 attachSceneAssetRegistryBridge(registry, {
   allowOfficialEditor: true,
 });
 ```
+
+A navigation sequence carries camera and aim trajectories, named stops,
+relative segment timing, and FOV transitions. Keep its stop, segment, and point
+IDs stable and give authored controls source references so feedback can map
+back to code. The complete contract and example are in the repository README.
 
 After deployment, open the website directly in the hosted editor:
 

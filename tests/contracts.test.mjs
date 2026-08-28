@@ -158,6 +158,97 @@ test("emits a legacy index only when explicitly requested", () => {
   assert.equal(registry.toReviewIndex("scene", true).schema, "sole-review-index/v1");
 });
 
+test("registers engine-neutral navigation sequences without requiring scene actors", () => {
+  const registry = new SceneAssetRegistry("navigation-fixture");
+  registry.registerNavigationSequence({
+    id: "main-journey",
+    name: "Main journey",
+    sourceRef: "src/scene/rail.ts#mainJourney",
+    stops: [
+      { id: "start", name: "Start", camera: [0, 1.7, 4], target: [0, 1.5, 0], fov: 50, sourceRef: "src/world.ts#start" },
+      { id: "finish", name: "Finish", camera: [4, 1.7, 0], target: [0, 1.5, 0], fov: 44, sourceRef: "src/world.ts#finish" },
+    ],
+    segments: [{
+      id: "start--finish",
+      fromStopId: "start",
+      toStopId: "finish",
+      weight: 1.5,
+      lensStart: 0.25,
+      sourceRef: "src/scene/rail.ts#start--finish",
+      camera: {
+        kind: "cubic-bezier",
+        points: [
+          { id: "start-camera", position: [0, 1.7, 4], role: "stop", stopId: "start" },
+          { id: "out", position: [1, 1.7, 4], role: "control-out" },
+          { id: "in", position: [4, 1.7, 1], role: "control-in" },
+          { id: "finish-camera", position: [4, 1.7, 0], role: "stop", stopId: "finish" },
+        ],
+      },
+      aim: { kind: "path-facing", lookDistance: 6, turnFraction: 0.18 },
+    }],
+  });
+
+  const index = registry.toReviewIndex("scene");
+  assert.equal(index.scene.actors.length, 0);
+  assert.equal(index.assetCatalog.assets.length, 0);
+  assert.equal(index.scene.navigationSequences.length, 1);
+  assert.equal(index.scene.navigationSequences[0].segments[0].camera.kind, "cubic-bezier");
+  assert.equal(registry.navigationSize, 1);
+  assert.equal(validateReviewIndex(index).ok, true);
+});
+
+test("rejects navigation segments that do not reference declared stops", () => {
+  const registry = new SceneAssetRegistry("invalid-navigation-fixture");
+  registry.registerNavigationSequence({
+    id: "broken",
+    name: "Broken",
+    stops: [{ id: "start", name: "Start", camera: [0, 0, 0], target: [0, 0, -1], fov: 50 }],
+    segments: [{
+      id: "missing-stop",
+      fromStopId: "start",
+      toStopId: "missing",
+      weight: 1,
+      camera: { kind: "line", points: [
+        { id: "a", position: [0, 0, 0], role: "stop", stopId: "start" },
+        { id: "b", position: [1, 0, 0], role: "stop", stopId: "missing" },
+      ] },
+      aim: { kind: "fixed-target", target: [0, 0, -1] },
+    }],
+  });
+  const validation = validateReviewIndex(registry.toReviewIndex("scene"));
+  assert.equal(validation.ok, false);
+  assert.match(validation.errors.join("\n"), /toStopId/);
+});
+
+test("reports malformed navigation JSON without throwing", () => {
+  const index = new SceneAssetRegistry("malformed-navigation-fixture").toReviewIndex("scene");
+  index.scene.navigationSequences = [{
+    id: "bad-arrays",
+    name: "Bad arrays",
+    stops: "not-an-array",
+    segments: null,
+  }, {
+    id: "bad-kinds",
+    name: "Bad kinds",
+    stops: [{ id: "start", name: "Start", camera: [0, 1, 2], target: [0, 1, 0], fov: 50 }],
+    segments: [{
+      id: "bad-segment",
+      fromStopId: "start",
+      toStopId: "start",
+      weight: 1,
+      camera: { kind: "spiral", points: [] },
+      aim: { kind: "telepathic" },
+    }],
+  }];
+
+  assert.doesNotThrow(() => validateReviewIndex(index));
+  const validation = validateReviewIndex(index);
+  assert.equal(validation.ok, false);
+  assert.match(validation.errors.join("\n"), /stops must be a non-empty array/);
+  assert.match(validation.errors.join("\n"), /supported curve type/);
+  assert.match(validation.errors.join("\n"), /aim.kind is not supported/);
+});
+
 test("advertises and reads registered texture resources", async () => {
   const texture = new THREE.Texture();
   texture.userData.sourceRef = "data:image/png;base64,iVBORw0KGgo=";

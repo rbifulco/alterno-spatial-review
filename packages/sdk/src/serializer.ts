@@ -3,10 +3,10 @@ import type { AssetGeometry, AssetGeometryDefinition, AssetMaterial, AssetNode, 
 import { slugify } from "./slug.js";
 
 function hex(color: THREE.Color | undefined, fallback = "#8d8d88") { return color ? `#${color.getHexString()}` : fallback; }
-function attributeArray(attribute: THREE.BufferAttribute | THREE.InterleavedBufferAttribute | undefined) {
+function attributeArray(attribute: THREE.BufferAttribute | THREE.InterleavedBufferAttribute | undefined, compact = false) {
   if (!attribute) return undefined;
-  const values: number[] = [];
-  for (let index = 0; index < attribute.count; index += 1) for (let component = 0; component < attribute.itemSize; component += 1) values.push(attribute.getComponent(index, component));
+  const values = compact ? new Float32Array(attribute.count * attribute.itemSize) : new Array<number>(attribute.count * attribute.itemSize);
+  for (let index = 0; index < attribute.count; index += 1) for (let component = 0; component < attribute.itemSize; component += 1) values[index * attribute.itemSize + component] = attribute.getComponent(index, component);
   return values;
 }
 
@@ -32,10 +32,13 @@ function serializeMaterial(material: THREE.Material, id: string, index: number, 
   return { id, name: material.name || `${material.type.replace(/Material$/, "")} ${index + 1}`, type: material.type.includes("Basic") ? "basic" : material.type.includes("Phong") ? "phong" : material.type.includes("Standard") ? "standard" : "unknown", color: hex(value.color), emissive: value.emissive ? hex(value.emissive, "#000000") : undefined, roughness: typeof value.roughness === "number" ? value.roughness : undefined, metalness: typeof value.metalness === "number" ? value.metalness : undefined, opacity: material.opacity, doubleSided: material.side === THREE.DoubleSide, wireframe: "wireframe" in material ? Boolean((material as THREE.MeshBasicMaterial).wireframe) : false, maps: maps ? materialMaps(material, onTexture) : undefined };
 }
 
-function serializeGeometry(geometry: THREE.BufferGeometry, surface: boolean): AssetGeometry | undefined {
-  const positions = attributeArray(geometry.getAttribute("position"));
+function serializeGeometry(geometry: THREE.BufferGeometry, surface: boolean, compact = false): AssetGeometry | undefined {
+  const positions = attributeArray(geometry.getAttribute("position"), compact);
   if (!positions?.length) return undefined;
-  return { kind: "mesh", positions, indices: geometry.index ? Array.from(geometry.index.array, Number) : undefined, normals: surface ? attributeArray(geometry.getAttribute("normal")) : undefined, uvs: surface ? attributeArray(geometry.getAttribute("uv")) : undefined, groups: geometry.groups.length ? geometry.groups.map((group) => ({ start: group.start, count: group.count, materialIndex: group.materialIndex ?? 0 })) : undefined };
+  const indices = geometry.index ? compact
+    ? (geometry.getAttribute("position").count <= 65535 ? Uint16Array : Uint32Array).from(geometry.index.array)
+    : Array.from(geometry.index.array, Number) : undefined;
+  return { kind: "mesh", positions, indices, normals: surface ? attributeArray(geometry.getAttribute("normal"), compact) : undefined, uvs: surface ? attributeArray(geometry.getAttribute("uv"), compact) : undefined, groups: geometry.groups.length ? geometry.groups.map((group) => ({ start: group.start, count: group.count, materialIndex: group.materialIndex ?? 0 })) : undefined };
 }
 
 function matrixTransform(matrix: THREE.Matrix4) {
@@ -45,18 +48,18 @@ function matrixTransform(matrix: THREE.Matrix4) {
   return { position, rotation: [rotation.x, rotation.y, rotation.z].map(THREE.MathUtils.radToDeg) as Vec3, scale: scale.toArray() as Vec3 };
 }
 
-export type Object3DAssetOptions = { assetId?: string; category?: string; tags?: string[]; animations?: string[]; profile?: "review" | "scene"; onTexture?: (resourceId: string, texture: THREE.Texture) => void };
+export type Object3DAssetOptions = { assetId?: string; category?: string; tags?: string[]; animations?: string[]; profile?: "review" | "scene"; geometryEncoding?: "json" | "typed"; onTexture?: (resourceId: string, texture: THREE.Texture) => void };
 
 export function assetFromObject3DRoots(roots: THREE.Object3D[], label: string, sourceRef: string, options: Object3DAssetOptions = {}): ReviewAsset3D {
   if (!roots.length) throw new Error(`Asset "${label}" has no registered Object3D roots.`);
   roots.forEach((root) => root.updateWorldMatrix(true, true));
-  const assetId = slugify(options.assetId ?? label.replace(/\.[^.]+$/, ""), "asset");
+  const assetId = options.assetId ?? slugify(label.replace(/\.[^.]+$/, ""), "asset");
   const materialIds = new Map<THREE.Material, string>(); const geometryIds = new Map<THREE.BufferGeometry, string>();
   const materials: AssetMaterial[] = []; const geometries: AssetGeometryDefinition[] = [];
   const nodes: AssetNode[] = [{ id: `${assetId}-root`, name: label.replace(/\.[^.]+$/, ""), type: "group", position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1], visible: true, materialIds: [], sourceRef }];
   const sourceMatrix = roots[0].matrixWorld.clone(); const inverse = sourceMatrix.clone().invert(); const surface = options.profile !== "scene";
   const materialIdFor = (material: THREE.Material) => { const found = materialIds.get(material); if (found) return found; const index = materials.length; const id = `${assetId}-material-${slugify(material.name || material.type, "surface")}-${index + 1}`; materialIds.set(material, id); materials.push(serializeMaterial(material, id, index, surface, options.onTexture)); return id; };
-  const geometryIdFor = (geometry: THREE.BufferGeometry) => { const found = geometryIds.get(geometry); if (found) return found; const value = serializeGeometry(geometry, surface); if (!value) return undefined; const id = `${assetId}-geometry-${slugify(geometry.name || geometry.type, "mesh")}-${geometries.length + 1}`; geometryIds.set(geometry, id); geometries.push({ id, name: geometry.name || geometry.type, geometry: value }); return id; };
+  const geometryIdFor = (geometry: THREE.BufferGeometry) => { const found = geometryIds.get(geometry); if (found) return found; const value = serializeGeometry(geometry, surface, options.geometryEncoding === "typed"); if (!value) return undefined; const id = `${assetId}-geometry-${slugify(geometry.name || geometry.type, "mesh")}-${geometries.length + 1}`; geometryIds.set(geometry, id); geometries.push({ id, name: geometry.name || geometry.type, geometry: value }); return id; };
   let componentIndex = 0;
   const visit = (object: THREE.Object3D, parentId: string, path: number[], top = false) => {
     if (object instanceof THREE.Light || object instanceof THREE.Camera || object instanceof THREE.Sprite) return;
