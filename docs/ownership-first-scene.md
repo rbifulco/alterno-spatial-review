@@ -1,12 +1,13 @@
 # Ownership-first scene contract
 
 Status: implementation draft requested by the repository owner on 2026-08-28.
-This local implementation is not a published protocol release. No accepted
-Protocol change issue has been supplied or created by this work. Before merging
-or releasing, a maintainer must record acceptance of this exact contract in a
-Protocol change issue and link it from the PR, following
-[the protocol change process](governance/protocol-changes.md). The implementation
-request authorizes isolated development; it does not fabricate that decision record.
+The owner explicitly requested local integration into `main` on 2026-08-29.
+That local merge is not protocol acceptance or a published release: no accepted
+Protocol change issue has been supplied or created by this work. Before upstream
+integration or release, a maintainer must record acceptance of this exact contract
+in a Protocol change issue and link it from the PR, following
+[the protocol change process](governance/protocol-changes.md). The local merge
+request does not supply or fabricate that separate decision record.
 
 ## Three independent relationships
 
