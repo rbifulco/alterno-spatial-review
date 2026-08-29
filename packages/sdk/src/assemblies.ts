@@ -14,7 +14,22 @@ export function transformMatrix(transform: Transform3D) {
 export function matrixTransform(matrix: THREE.Matrix4): Transform3D {
   const position = new THREE.Vector3(), quaternion = new THREE.Quaternion(), scale = new THREE.Vector3();
   matrix.decompose(position, quaternion, scale);
-  const rotation = new THREE.Euler().setFromQuaternion(quaternion, "XYZ");
+  const primary = new THREE.Euler().setFromQuaternion(quaternion, "XYZ");
+  // Three.js intentionally collapses the secondary XYZ solution close to the
+  // +/-90-degree singularity. Just beyond that boundary, the collapsed angles
+  // can flip a small cosine term and fail an otherwise exact TRS round-trip.
+  // Evaluate the equivalent secondary solution and retain the faithful one.
+  const secondary = new THREE.Euler(
+    primary.x + Math.PI,
+    primary.y,
+    primary.z + Math.PI,
+    "XYZ",
+  );
+  const error = (candidate: THREE.Euler) => {
+    const recomposed = new THREE.Matrix4().compose(position, new THREE.Quaternion().setFromEuler(candidate), scale);
+    return Math.max(...matrix.elements.map((value, index) => Math.abs(value - recomposed.elements[index])));
+  };
+  const rotation = error(secondary) < error(primary) ? secondary : primary;
   return { position: position.toArray() as Vec3, rotation: [rotation.x, rotation.y, rotation.z].map(THREE.MathUtils.radToDeg) as Vec3, scale: scale.toArray() as Vec3 };
 }
 
