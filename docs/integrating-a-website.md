@@ -6,8 +6,9 @@ register meaningful Three.js roots where they are created.
 For buildings, rooms, and owned contents, follow the
 [ownership-first scene contract](ownership-first-scene.md). Register transform-only
 assemblies separately from render actors; categories do not establish ownership.
-The assembly extension is an implementation draft awaiting formal maintainer
-acceptance and release. Retain flat exports when the installed SDK lacks it.
+The assembly extension is accepted in
+[Protocol change issue #11](https://github.com/rbifulco/alterno-spatial-review/issues/11)
+and awaits package release. Retain flat exports when the installed SDK lacks it.
 
 Before registering attached fixtures or parts, decide their
 [assembly ownership](../agents/structuring-for-review.md#decide-assembly-ownership-explicitly).

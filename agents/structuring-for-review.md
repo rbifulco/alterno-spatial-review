@@ -224,8 +224,8 @@ registration's `visible` option for whole-placement visibility instead of
 overwriting those root flags. Flat fallback must retain hidden component choices.
 
 Read [Ownership-first scene contract](../docs/ownership-first-scene.md) for the
-implementation draft, positive uniform assembly scaling, visibility inheritance,
-capability negotiation, compatibility fallback, and acceptance/release status.
+accepted contract, positive uniform assembly scaling, visibility inheritance,
+capability negotiation, compatibility fallback, and release status.
 If the installed SDK or editor lacks support, retain flat actors and clearly
 report that assembly editing is unavailable. Categories/layers are not a
 substitute for coordinated transforms.

@@ -1,13 +1,10 @@
 # Ownership-first scene contract
 
-Status: implementation draft requested by the repository owner on 2026-08-28.
-The owner explicitly requested local integration into `main` on 2026-08-29.
-That local merge is not protocol acceptance or a published release: no accepted
-Protocol change issue has been supplied or created by this work. Before upstream
-integration or release, a maintainer must record acceptance of this exact contract
-in a Protocol change issue and link it from the PR, following
-[the protocol change process](governance/protocol-changes.md). The local merge
-request does not supply or fabricate that separate decision record.
+Status: accepted by the repository owner on 2026-08-29 in
+[Protocol change issue #11](https://github.com/rbifulco/alterno-spatial-review/issues/11).
+Acceptance covers this exact `scene-assemblies-v1` contract and its compatibility
+behavior. Package publication remains a separate step under the
+[release process](governance/releases.md).
 
 ## Three independent relationships
 

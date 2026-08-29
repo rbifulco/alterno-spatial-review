@@ -70,10 +70,11 @@ application.
 | **Scene review** | Places and their contents, independent placements, visibility, and alternative classification views | Explicit ownership, composition, hierarchy, and context |
 | **Asset review** | Component hierarchy, geometry, materials, textures, and local transforms | Shared design, construction, and material feedback |
 
-The [ownership-first implementation draft](docs/ownership-first-scene.md) adds
+The accepted [ownership-first scene contract](docs/ownership-first-scene.md) adds
 explicit transform-only assemblies while keeping placements, shared designs, and
-classification separate. It includes negotiation, migration, and acceptance
-requirements; it is not yet an accepted or published protocol change.
+classification separate. It includes negotiation and migration requirements.
+The contract was accepted in [protocol issue #11](https://github.com/rbifulco/alterno-spatial-review/issues/11);
+package publication remains a separate release step.
 
 > [!IMPORTANT]
 > Spatial Review does not scrape an arbitrary WebGL canvas. The website opts in
