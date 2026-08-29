@@ -65,7 +65,7 @@ current guidance, identify gaps, and record a compact integration plan:
 | --- | --- |
 | Integration | First installation or refinement; current SDK and exports, guidance gaps, required changes |
 | Actors | Independent selections, placement IDs, relevant surrounding context |
-| Ownership | Explicit place/room assemblies, parents for loose contents and fixtures, World/Street exceptions, uniform assembly scale, capability support |
+| Assembly ownership | Explicit place/room owners for contents and fixtures, World/Street exceptions, expected move/rotate/scale/hide behavior, uniform assembly scale, capability support and any flat-scene limitations |
 | Assets | Shared designs, distinct variants, component hierarchy, materials |
 | Journeys | Applicable routes, meaningful stops, authored camera and aim inputs |
 | Source mapping | Source definitions for placements, components, and path controls; coordinate conversions |
@@ -270,6 +270,7 @@ or editor interactions. Perform these checks separately:
 | --- | --- |
 | Website | The entry page, existing interactions, and authored camera journeys retain their behavior after integration changes |
 | Export coverage | The review index accounts for every planned actor, canonical asset, and journey; names, hierarchy, materials, and source mappings match the rendered content |
+| Assembly ownership | Move and hide a representative owner (for example, a building with an AC unit). The intended parts follow, unrelated owners do not, and no part is exported twice; unsupported inherited actor behavior is explicitly recorded. |
 | Discovery | Connection from the website URL works through the browser bridge without static-document CORS |
 | Permissions | Approved origins can obtain registered data; denied origins cannot obtain discovery, catalogs, or texture bytes |
 | Resources | Both scene and detailed asset views load; important textures display or a specific limitation is reported |
