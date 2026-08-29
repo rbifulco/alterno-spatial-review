@@ -72,6 +72,55 @@ local construction and materials. Name roots inside the factory before placing
 them; this prevents a placement label from becoming a component's identity.
 Keep the canonical representative and registration order deterministic.
 
+## Decide assembly ownership explicitly
+
+Independent selection does not imply independent ownership. An AC unit can be
+a useful individual review target while belonging to a building; a wheel can
+be a useful component while belonging to a vehicle. Before registering these
+parts, decide whether moving, rotating, scaling, or hiding the owner should
+also affect them. Record the owner in authoritative placement data rather than
+inferring it from proximity, names, or shared materials.
+
+Keep three relationships distinct:
+
+| Relationship | Example | What it means |
+| --- | --- | --- |
+| Shared design | AC units on two different buildings use one `assetId` | Reusable construction, not a common scene parent |
+| Assembly membership | Building BE1 owns its attached AC unit | Intended coordinated placement and visibility |
+| Catalog grouping | AC units appear under a Fixtures category | Browsing organization, not transform inheritance |
+
+With `scene-assemblies-v1`, use the explicit transform-only owners and independent
+placements in the [ownership-first contract](../docs/ownership-first-scene.md).
+For legacy flat captures without this capability, actor records provide no
+inherited ownership. `AssetNode.parentId` describes components **inside one asset**;
+it does not parent one scene actor to another. A source `Object3D` parent, an
+actor-ID prefix, a tag, a category, or a scene layer does not establish inherited
+actor transforms in the editor. A display group with a count of one is also
+unrelated to an asset's component count.
+
+For a legacy producer or editor, choose and document a supported representation:
+
+- If coordinated assembly edits are the priority, register the assembly once
+  and retain attached parts as named asset components. Moving the assembly in
+  Scene then includes its parts; Asset review targets the parts locally. Do not
+  also register those descendants as independent actors, which duplicates their
+  geometry and review ownership. Only share the assembly's `assetId` between
+  placements with the same local construction and materials.
+- If independent scene placement and shared canonical part assets are required,
+  register the parts separately, retain their ownership in source, and explicitly
+  report that the current editor cannot move or hide the owner and parts as one
+  assembly. This is a limitation, not a complete ownership handoff.
+- If both independent child actors and inherited assembly editing are required,
+  identify a protocol/SDK/editor capability gap. Do not invent a parent field or
+  promise that naming, categories, or a custom scene manifest implements it.
+  Follow the [protocol change process](../docs/governance/protocol-changes.md)
+  before extending that contract.
+
+For optimized or procedural scenes, choose ownership from construction and
+placement data, not draw-call or material batches. Review-only representations
+may restore those boundaries without changing rendering, but must retain one
+registration owner per rendered part and reproduce its original world pose.
+
 ## Organize components around construction
 
 Give each component a name that identifies the part a reviewer can discuss:
@@ -175,8 +224,8 @@ registration's `visible` option for whole-placement visibility instead of
 overwriting those root flags. Flat fallback must retain hidden component choices.
 
 Read [Ownership-first scene contract](../docs/ownership-first-scene.md) for the
-implementation draft, positive uniform assembly scaling, visibility inheritance,
-capability negotiation, compatibility fallback, and acceptance/release status.
+accepted contract, positive uniform assembly scaling, visibility inheritance,
+capability negotiation, compatibility fallback, and release status.
 If the installed SDK or editor lacks support, retain flat actors and clearly
 report that assembly editing is unavailable. Categories/layers are not a
 substitute for coordinated transforms.
@@ -261,6 +310,11 @@ Before completing the review-structure step, account for every intended target:
   geometry and do not change source batching.
 - Feedback distinguishes assembly placement, individual placement, reparenting,
   and canonical asset construction, and refresh does not double-apply transforms.
+- Attached fixtures and parts have an explicit ownership decision: assembly
+  placement, asset component, independent actor with a documented limitation, or
+  a capability gap.
+- Moving and hiding a representative owner affects exactly the intended parts,
+  or the unsupported behavior is reported; unrelated owners remain unchanged.
 - Each asset exposes the parts and materials needed for specific feedback.
 - Each journey has recognizable moments and traceable authored inputs.
 - Each source mapping includes enough information to reverse coordinate changes.

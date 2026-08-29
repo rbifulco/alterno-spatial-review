@@ -3,16 +3,14 @@ import { ASSET_REVIEW_SCHEMA, LEGACY_SPATIAL_REVIEW_INDEX_SCHEMA, SCENE_ACTORS_S
 import { assetFromObject3DRoots } from "./serializer.js";
 import { readTextureResource } from "./resource.js";
 import { SceneGraphCache } from "./scene-cache.js";
-import { assembleScene, transformMatrix, type SceneAssemblyRegistration } from "./assemblies.js";
+import { assembleScene, matrixTransform, transformMatrix, type SceneAssemblyRegistration } from "./assemblies.js";
 
 export type SceneAssetRegistration = { actorId: string; assetId: string; name: string; sourceRef: string; category: string; roots: THREE.Object3D[]; tags?: string[]; order?: number; parentAssemblyId?: string; visible?: boolean };
 export type NavigationSequenceRegistration = NavigationSequence & { order?: number };
 type CachedAsset = { revision: string; asset: ReviewAsset3D };
 
 function transform(object: THREE.Object3D) {
-  const position = new THREE.Vector3(); const quaternion = new THREE.Quaternion(); const scale = new THREE.Vector3();
-  object.matrixWorld.decompose(position, quaternion, scale); const rotation = new THREE.Euler().setFromQuaternion(quaternion, "XYZ");
-  return { position: position.toArray() as Vec3, rotation: [rotation.x, rotation.y, rotation.z].map(THREE.MathUtils.radToDeg) as Vec3, scale: scale.toArray() as Vec3 };
+  return matrixTransform(object.matrixWorld);
 }
 
 export class SceneAssetRegistry {

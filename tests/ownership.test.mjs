@@ -121,6 +121,22 @@ test("ownership capture rejects sheared actor roots instead of exporting lossy T
   assert.throws(() => registry.toScene(), /sheared source-root/);
 });
 
+test("valid XYZ rotations just beyond the Euler singularity retain an exact source pose", () => {
+  const registry = new SceneAssetRegistry("past-gimbal");
+  registry.registerAssembly({ assemblyId: "world", name: "World", sourceRef: "fixture#world", localTransform: { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] } });
+  const root = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());
+  root.rotation.y = -Math.PI / 2 - 0.00042;
+  root.scale.setScalar(0.84);
+  root.updateMatrixWorld(true);
+  const before = root.matrixWorld.clone();
+  registry.register({ actorId: "past-gimbal", assetId: "fixture", name: "Past gimbal", sourceRef: "fixture#past-gimbal", category: "Fixture", parentAssemblyId: "world", root });
+  const actor = registry.toScene().actors[0];
+  const after = sceneTransformMatrix(actor.transform);
+  before.elements.forEach((value, index) => assert.ok(Math.abs(value - after[index]) < 1e-9));
+  root.geometry.dispose();
+  root.material.dispose();
+});
+
 test("ownership validator rejects ambiguous, cyclic, malformed, and lossy payloads", () => {
   const scene = ownershipFixture().registry.toScene();
   const mutations = [
