@@ -1,6 +1,6 @@
 {
   "name": "@alterno-dev/spatial-review-validator",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Runtime validators for Alterno Spatial Review contracts.",
   "license": "MIT",
   "type": "module",
@@ -10,5 +10,5 @@
   "files": ["dist", "README.md"],
   "publishConfig": { "access": "public" },
   "scripts": { "build": "tsc -p tsconfig.json" },
-  "dependencies": { "@alterno-dev/spatial-review-protocol": "0.4.0" }
+  "dependencies": { "@alterno-dev/spatial-review-protocol": "0.5.0" }
 }
