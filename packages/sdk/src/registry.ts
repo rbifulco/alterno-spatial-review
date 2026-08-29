@@ -3,8 +3,9 @@ import { ASSET_REVIEW_SCHEMA, LEGACY_SPATIAL_REVIEW_INDEX_SCHEMA, SCENE_ACTORS_S
 import { assetFromObject3DRoots } from "./serializer.js";
 import { readTextureResource } from "./resource.js";
 import { SceneGraphCache } from "./scene-cache.js";
+import { assembleScene, transformMatrix, type SceneAssemblyRegistration } from "./assemblies.js";
 
-export type SceneAssetRegistration = { actorId: string; assetId: string; name: string; sourceRef: string; category: string; roots: THREE.Object3D[]; tags?: string[]; order?: number };
+export type SceneAssetRegistration = { actorId: string; assetId: string; name: string; sourceRef: string; category: string; roots: THREE.Object3D[]; tags?: string[]; order?: number; parentAssemblyId?: string; visible?: boolean };
 export type NavigationSequenceRegistration = NavigationSequence & { order?: number };
 type CachedAsset = { revision: string; asset: ReviewAsset3D };
 
@@ -18,6 +19,7 @@ export class SceneAssetRegistry {
   readonly buildId: string;
   private registrations = new Map<string, SceneAssetRegistration>();
   private navigationRegistrations = new Map<string, NavigationSequenceRegistration>();
+  private assemblyRegistrations = new Map<string, SceneAssemblyRegistration>();
   private assets = new Map<string, SceneAssetRegistration>();
   private orderedEntries: SceneAssetRegistration[] | undefined;
   private assetCache = new Map<string, CachedAsset>();
@@ -43,6 +45,19 @@ export class SceneAssetRegistry {
     if (removed) { this.actorCache.delete(actorId); this.resetCatalog([previous!.assetId]); }
     return removed;
   }
+  /** Register a transform-only owner. A root supplies a pose, never geometry. */
+  registerAssembly(registration: SceneAssemblyRegistration) {
+    if (!registration.assemblyId.trim()) throw new Error("Scene assembly ID cannot be empty.");
+    this.assemblyRegistrations.set(registration.assemblyId, registration.root ? { ...registration } : { ...registration, localTransform: structuredClone(registration.localTransform) });
+    this.assetCache.clear();
+    return registration;
+  }
+  unregisterAssembly(assemblyId: string) {
+    if ([...this.registrations.values(), ...this.assemblyRegistrations.values()].some((entry) => entry.parentAssemblyId === assemblyId)) throw new Error("Reparent or unregister owned children before removing their assembly.");
+    this.assetCache.clear();
+    return this.assemblyRegistrations.delete(assemblyId);
+  }
+  get assemblySize() { return this.assemblyRegistrations.size; }
   /** Transform/hierarchy edits and attribute.needsUpdate are detected automatically.
    * Explicitly invalidate after changing raw geometry buffers without a version bump. */
   invalidate(actorId?: string) {
@@ -79,6 +94,9 @@ export class SceneAssetRegistry {
     const asset = assetFromObject3DRoots(entry.roots, entry.name, entry.sourceRef, {
       assetId: entry.assetId, category: entry.category, tags: [...(entry.tags ?? []), "registered", profile], profile,
       geometryEncoding: compact ? "typed" : "json", onTexture: (resourceId, texture) => this.textureResources.set(resourceId, texture),
+      // A single root is the placement's visibility switch. Multiple roots
+      // are asset parts: one actor flag cannot encode their individual states.
+      ignoreRootVisibility: this.assemblyRegistrations.size > 0 && entry.roots.length === 1,
     });
     this.assetCache.set(key, { revision, asset }); return asset;
   }
@@ -116,6 +134,7 @@ export class SceneAssetRegistry {
       if (cached?.revision !== revision) {
         const bounds = new THREE.Box3(); entry.roots.forEach((root) => bounds.union(this.graph.inspect(root).bounds));
         const actor: SceneReviewActor = { actorId: entry.actorId, assetId: entry.assetId, name: entry.name, sourceRef: entry.sourceRef, category: entry.category,
+          parentAssemblyId: entry.parentAssemblyId, visible: entry.visible ?? entry.roots.some((root) => root.visible),
           transform: transform(entry.roots[0]), bounds: { center: (bounds.isEmpty() ? new THREE.Vector3() : bounds.getCenter(new THREE.Vector3())).toArray() as Vec3,
             size: (bounds.isEmpty() ? new THREE.Vector3() : bounds.getSize(new THREE.Vector3())).toArray() as Vec3 } };
         cached = { revision, actor }; this.actorCache.set(entry.actorId, cached);
@@ -124,11 +143,29 @@ export class SceneAssetRegistry {
       return structuredClone(cached.actor);
     });
   }
-  toActors() { this.graph.begin(); return this.actors(); }
+  /** Legacy actor-only callers have no assembly context, so return world-space fallback records. */
+  toActors() { return this.toScene(false).actors; }
+  toScene(hierarchical = true) {
+    this.graph.begin();
+    const actors = this.actors();
+    if (!this.assemblyRegistrations.size && !actors.some((actor) => actor.parentAssemblyId)) return { schema: SCENE_ACTORS_SCHEMA, actors, navigationSequences: this.toNavigationSequences() };
+    // Object identity, not geometry resource identity, determines registration ownership.
+    const owners = new Map<THREE.Object3D, string>();
+    this.ordered().forEach((entry) => entry.roots.forEach((root) => {
+      const recomposed = transformMatrix(transform(root));
+      if (!root.matrixWorld.elements.every((value, index) => Number.isFinite(value) && Math.abs(value - recomposed.elements[index]) <= 1e-5 * Math.max(1, Math.abs(value)))) throw new Error(`Actor "${entry.actorId}" has an unsupported sheared source-root transform.`);
+      root.traverse((object) => {
+        if (!(object as THREE.Mesh).geometry) return;
+        if (owners.has(object)) throw new Error(`Rendered object "${object.name || object.uuid}" has overlapping registration owners "${owners.get(object)}" and "${entry.actorId}".`);
+        owners.set(object, entry.actorId);
+      });
+    }));
+    return { ...assembleScene([...this.assemblyRegistrations.values()], actors, hierarchical), navigationSequences: this.toNavigationSequences() };
+  }
   toNavigationSequences(): NavigationSequence[] { return [...this.navigationRegistrations.values()].sort((a, b) => (a.order ?? Number.MAX_SAFE_INTEGER) - (b.order ?? Number.MAX_SAFE_INTEGER)).map(({ order: _order, ...sequence }) => structuredClone(sequence)); }
-  toReviewIndex(profile: SpatialReviewProfile = "review", legacy = false, metadata = false): SpatialReviewIndex {
+  toReviewIndex(profile: SpatialReviewProfile = "review", legacy = false, metadata = false, hierarchical = !legacy): SpatialReviewIndex {
     this.graph.begin(); return { schema: legacy ? LEGACY_SPATIAL_REVIEW_INDEX_SCHEMA : SPATIAL_REVIEW_INDEX_SCHEMA, buildId: this.buildId, generatedAt: new Date().toISOString(),
-      scene: { schema: SCENE_ACTORS_SCHEMA, actors: this.actors(), navigationSequences: this.toNavigationSequences() }, assetCatalog: this.document(profile, metadata) };
+      scene: this.toScene(!legacy && hierarchical), assetCatalog: this.document(profile, metadata) };
   }
   hasTextureResource(resourceId: string) { return this.textureResources.has(resourceId); }
   async readTextureResource(resourceId: string, maxBytes: number) { const texture = this.textureResources.get(resourceId); return texture ? readTextureResource(texture, maxBytes) : undefined; }

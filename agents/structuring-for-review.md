@@ -14,7 +14,7 @@ elements are outside this contract.
 
 | Scale | Reviewer intent | Source responsibility |
 | --- | --- | --- |
-| Scene | Move the courtyard gate away from the steps | One actor's placement |
+| Scene | Move a building with its contents, or one courtyard gate independently | One assembly or actor's placement |
 | Path | Reveal the gate earlier during arrival | Camera/aim controls and timing |
 | Asset | Make the gate's arch thinner | Canonical geometry and components |
 
@@ -57,6 +57,14 @@ Keep factories for canonical construction separate from placement data. A scene
 instruction changes one placement; an asset instruction changes the shared
 definition. Geometry or material variants need distinct asset IDs when the
 reviewer must distinguish them.
+
+Ownership is a third relationship: a chair can belong to a room while sharing
+its canonical design with chairs in other buildings. Physical attachment is not
+the ownership boundary. Use explicit assemblies for authored places and rooms
+when the installed SDK supports `scene-assemblies-v1`; keep child actors
+independently addressable. Do not turn a building and all its furniture into one
+canonical asset to obtain coordinated movement. An asset's own legs, panels,
+and other construction parts can remain asset components.
 
 The current registry takes the first ordered registration for each `assetId` as
 the canonical asset. All registrations sharing that ID must therefore agree on
@@ -120,30 +128,68 @@ in degrees; texture-map rotation retains its separate texture convention.
 
 | Feedback | Interpretation |
 | --- | --- |
-| Scene position, rotation, size | Editor actor frame; `size` is dimensions in metres |
+| Flat scene position, rotation, size | Legacy editor actor frame; `size` is dimensions in metres |
+| Ownership-aware assembly/placement operation | Explicit parent-local position, XYZ rotation in degrees, dimensionless scale, and owner ID |
 | Asset part position, rotation, scale | Component transform relative to its parent |
 | Path camera/aim position | World-space position in metres |
 | Scene surface pin | Object-local anchor |
 | Asset surface pin | Component-local anchor, optionally with normal, UV, and instance ID |
 
-For live actors, the scene editor starts from a world-aligned, bounds-centered
+For legacy flat live actors, the scene editor starts from a world-aligned, bounds-centered
 frame. Its pivot can differ from the original Three.js root. Translate scene
 transform intent through the imported frame and source transform; assigning
 exported `size` directly to `Object3D.scale`, or treating the bounds center as the
 source pivot, changes the meaning.
 
+Ownership-aware actors instead use the source root's explicit frame and local
+pose. The wire `transform` remains world-space, and `localTransform` is a separate
+field. Apply one assembly operation to its owner; never also replay its derived
+child world changes. For reparent operations, update final ownership and apply
+the supplied absolute local pose; keep the actor/asset IDs stable.
+
+Keep geometry bounds separate from that source-root pivot: an offset mesh can be
+far from its root origin. Transform the captured world-space bounds into the
+editing frame for selection, focus, and placeholders; do not move the pivot to
+make those bounds fit.
+
 ## Scene organization
 
-Use names, categories, and registration order to keep the catalog recognizable.
+Organize Scene around authored places and their contents. Use names and
+registration order to keep those places recognizable; keep categories and asset
+types as filters or alternative views. The Asset library can remain type-based.
 Include only context that supports a review decision. An authored lightweight
 terrain or background proxy can reduce cost when its missing detail is irrelevant;
 identify it as a proxy and retain detailed assets for construction review.
+
+An assembly is a transform-only owner, not another geometry registration. Expose
+the building structure, roof fixtures, and loose furniture once each under their
+authored owners. Street litter and cross-building cables need an explicit owner
+(possibly Street or World); never infer ownership from proximity. Keep the game's
+scene construction and batching unchanged. Sharing geometry resources across
+independent Object3Ds is not duplicate registration.
+
+With assemblies, a single registration root's visibility controls its placement;
+descendant visibility still describes components. In a multi-root registration,
+preserve every root's individual visibility as component state. Use the
+registration's `visible` option for whole-placement visibility instead of
+overwriting those root flags. Flat fallback must retain hidden component choices.
+
+Read [Ownership-first scene contract](../docs/ownership-first-scene.md) for the
+implementation draft, positive uniform assembly scaling, visibility inheritance,
+capability negotiation, compatibility fallback, and acceptance/release status.
+If the installed SDK or editor lacks support, retain flat actors and clearly
+report that assembly editing is unavailable. Categories/layers are not a
+substitute for coordinated transforms.
 
 In the current editor, newly imported live actors enter the `Website scene`
 layer. Registration `category` does not automatically create layers or locks.
 When grouping and locking are required, author a scene manifest with explicit
 `layers`, object `layerId` values, stable actor/asset links, and source references.
 Check that organization after live reconciliation as well as static import.
+
+The ownership view is primary in an assembly-capable editor. Layers remain
+independent display/lock controls, not inferred ownership. Moving an assembly
+containing a locked-layer actor is disabled until its layer is unlocked.
 
 ## Preserve material and geometry evidence
 
@@ -189,6 +235,13 @@ Editor changes express intent. Implement them in authoritative source, then
 refresh and compare the result in both the editor and website. Retain IDs for
 targets that still represent the same thing.
 
+When replacing a component-based building export (including the v6 game adapter),
+explicitly map old review targets or start a new review baseline. Do not migrate
+component comments to similarly named actors by guesswork. Retain old review sets;
+unmatched ownership intent is exported separately for manual migration. A refresh
+shows the source baseline, retains unapplied local intent, and retires an operation
+when source matches it, without replaying both parent and child movement.
+
 Use compact agent feedback for implementation instructions and a full review set
 for continuing a session. The compact export intentionally omits mesh buffers
 and unchanged content; resolve targets through identity and source references.
@@ -200,6 +253,14 @@ Before completing the review-structure step, account for every intended target:
 
 - Each actor is independently selectable at the scale of a placement decision.
 - Repeated placements share construction without losing their individual IDs.
+- Moving/rotating a building carries owned structure, fixtures, and furniture,
+  but not other buildings or street objects; child-local poses remain unchanged.
+- Children remain independently selectable, movable, and reparentable with their
+  world pose preserved; parent hide/show preserves each child's hidden choice.
+- Every rendered piece has exactly one registration owner; assemblies add no
+  geometry and do not change source batching.
+- Feedback distinguishes assembly placement, individual placement, reparenting,
+  and canonical asset construction, and refresh does not double-apply transforms.
 - Each asset exposes the parts and materials needed for specific feedback.
 - Each journey has recognizable moments and traceable authored inputs.
 - Each source mapping includes enough information to reverse coordinate changes.

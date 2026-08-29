@@ -10,6 +10,7 @@ import type {
   SPATIAL_REVIEW_RESOURCE_REQUEST,
   SPATIAL_REVIEW_RESOURCE_RESPONSE,
   SPATIAL_REVIEW_RESOURCE_TRANSFER_CAPABILITY,
+  SPATIAL_REVIEW_ASSEMBLIES_CAPABILITY,
 } from "./constants.js";
 
 export type Vec2 = [number, number];
@@ -38,7 +39,56 @@ export type AssetFeedback = { status: "unreviewed" | "needs-change" | "question"
 export type ReviewAsset3D = { id: string; name: string; sourceRef?: string; category?: string; tags: string[]; nodes: AssetNode[]; geometries?: AssetGeometryDefinition[]; materials: AssetMaterial[]; sourceTransform?: Transform3D; animations?: string[]; feedback: AssetFeedback };
 export type AssetReviewDocument3D = { schema: typeof ASSET_REVIEW_SCHEMA; id: string; name: string; units: "m"; source?: { label?: string; url?: string; importedAt?: string; generator?: string }; assets: ReviewAsset3D[] };
 
-export type SceneReviewActor = { actorId: string; assetId: string; name: string; sourceRef: string; category: string; transform: Transform3D; bounds: { center: Vec3; size: Vec3 } };
+export type Bounds3D = { center: Vec3; size: Vec3 };
+/** Ownership is independent of asset identity, classification, and render batches. */
+export type SceneReviewAssembly = {
+  assemblyId: string;
+  name: string;
+  sourceRef: string;
+  parentAssemblyId?: string;
+  /** Parent-local metres, XYZ Euler degrees, and positive uniform scale. */
+  localTransform: Transform3D;
+  /** Evaluated world pose and subtree bounds for non-hierarchical consumers. */
+  transform: Transform3D;
+  bounds: Bounds3D;
+  /** Own visibility; effective visibility also includes all owners. */
+  visible: boolean;
+};
+export type SceneOwnership = {
+  capability: typeof SPATIAL_REVIEW_ASSEMBLIES_CAPABILITY;
+  mode: "hierarchical" | "flattened";
+  /** Human-readable disclosure, especially when assembly editing is unavailable. */
+  reason?: string;
+};
+export type SceneReviewActor = {
+  actorId: string; assetId: string; name: string; sourceRef: string; category: string;
+  /** Always world-space. Never reinterpret this existing field as parent-local. */
+  transform: Transform3D;
+  bounds: Bounds3D;
+  parentAssemblyId?: string;
+  /** Required for actors in an explicitly hierarchical scene, including world children. */
+  localTransform?: Transform3D;
+  /** Own visibility in hierarchical scenes; effective visibility when flattened. */
+  visible?: boolean;
+};
+
+export type SceneOwnershipTarget = { kind: "assembly"; assemblyId: string; sourceRef: string }
+  | { kind: "placement"; actorId: string; assetId: string; sourceRef: string };
+/** Absolute intent against one baseline, not incremental operations to replay. */
+export type SceneOwnershipOperation = {
+  action: "transform";
+  target: SceneOwnershipTarget;
+  space: "parent-local";
+  parentAssemblyId?: string;
+  before: Transform3D;
+  after: Transform3D;
+} | {
+  action: "reparent";
+  target: SceneOwnershipTarget;
+  before: { parentAssemblyId?: string; localTransform: Transform3D };
+  after: { parentAssemblyId?: string; localTransform: Transform3D };
+  preserveWorldPose: boolean;
+};
 
 /** Stable semantic role of an authored point. Unlike evaluated samples, these
  * points are suitable targets for review comments and spatial edit proposals. */
@@ -103,6 +153,8 @@ export type NavigationSequence = {
 export type SpatialReviewScene = {
   schema: typeof SCENE_ACTORS_SCHEMA;
   actors: SceneReviewActor[];
+  assemblies?: SceneReviewAssembly[];
+  ownership?: SceneOwnership;
   navigationSequences?: NavigationSequence[];
 };
 
@@ -131,6 +183,7 @@ export type SpatialReviewReadyMessage = {
   type: string;
   buildId: string;
   actors: number;
+  assemblies?: number;
   navigationSequences?: number;
   capabilities?: string[];
   resourceTransfer?: SpatialReviewResourceTransferOffer;
@@ -139,6 +192,8 @@ export type SpatialReviewCatalogRequest = {
   type: string;
   profile?: SpatialReviewProfile;
   requestId?: string;
+  /** Explicit consumer opt-in; absent means a flattened world-space catalog. */
+  capabilities?: string[];
   resourceTransfer?: SpatialReviewResourceTransferOffer;
   /** Opt in to bounds/metadata first, then request individual asset families. */
   progressive?: boolean;

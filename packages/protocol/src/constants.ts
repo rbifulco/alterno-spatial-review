@@ -4,6 +4,7 @@ export const SPATIAL_REVIEW_INDEX_SCHEMA = "spatial-review-index/v1" as const;
 export const LEGACY_SPATIAL_REVIEW_INDEX_SCHEMA = "sole-review-index/v1" as const;
 export const ASSET_REVIEW_SCHEMA = "asset-review-3d/v1" as const;
 export const SCENE_ACTORS_SCHEMA = "scene-actors/v1" as const;
+export const SPATIAL_REVIEW_ASSEMBLIES_CAPABILITY = "scene-assemblies-v1" as const;
 export const SPATIAL_REVIEW_DISCOVERY_PATH = "/.well-known/spatial-review.json" as const;
 
 export const SPATIAL_REVIEW_READY = "alterno:spatial-review:ready" as const;

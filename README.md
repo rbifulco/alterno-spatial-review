@@ -67,8 +67,13 @@ application.
 
 | Review scale | What it preserves | Useful for |
 | --- | --- | --- |
-| **Scene review** | Placement, scale, visibility, layers, and spatial relationships | Composition, navigation, hierarchy, and context |
-| **Asset review** | Component hierarchy, geometry, materials, textures, and local transforms | Shape, construction, and material feedback |
+| **Scene review** | Places and their contents, independent placements, visibility, and alternative classification views | Explicit ownership, composition, hierarchy, and context |
+| **Asset review** | Component hierarchy, geometry, materials, textures, and local transforms | Shared design, construction, and material feedback |
+
+The [ownership-first implementation draft](docs/ownership-first-scene.md) adds
+explicit transform-only assemblies while keeping placements, shared designs, and
+classification separate. It includes negotiation, migration, and acceptance
+requirements; it is not yet an accepted or published protocol change.
 
 > [!IMPORTANT]
 > Spatial Review does not scrape an arbitrary WebGL canvas. The website opts in

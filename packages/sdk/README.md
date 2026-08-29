@@ -3,6 +3,18 @@
 Register semantic Three.js roots and expose them to compatible review tools.
 The editor receives only explicitly registered objects.
 
+## Scene ownership (implementation draft)
+
+Use `registerAssembly()` for explicit transform-only place/room owners and
+`parentAssemblyId` on actor registrations for their contents. Assemblies read an
+existing root's pose or accept a `localTransform` snapshot; they never register
+its geometry. `toScene()` exports hierarchy and world-space compatibility data;
+`toScene(false)` provides a flattened fallback. The bridge negotiates
+`scene-assemblies-v1` explicitly and preserves the old flat producer path.
+Read the [complete example and migration rules](../../docs/ownership-first-scene.md)
+before adopting this unreleased extension. Every rendered subtree still needs
+exactly one geometry registration owner, independent of shared asset identity.
+
 ## Official editor authorization
 
 Installing this package alone does not expose page data or start a bridge.

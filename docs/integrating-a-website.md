@@ -3,6 +3,12 @@
 Install the SDK, expose discovery from the ordinary website entry page, and
 register meaningful Three.js roots where they are created.
 
+For buildings, rooms, and owned contents, follow the
+[ownership-first scene contract](ownership-first-scene.md). Register transform-only
+assemblies separately from render actors; categories do not establish ownership.
+The assembly extension is an implementation draft awaiting formal maintainer
+acceptance and release. Retain flat exports when the installed SDK lacks it.
+
 ## Review access and the official editor
 
 Installing the npm package does not run a bridge or expose website data. The

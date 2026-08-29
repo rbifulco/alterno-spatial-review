@@ -1,6 +1,7 @@
 import { LEGACY_SPATIAL_REVIEW_CATALOG, LEGACY_SPATIAL_REVIEW_READY, LEGACY_SPATIAL_REVIEW_REQUEST, OFFICIAL_SPATIAL_REVIEW_EDITOR_ORIGIN, SPATIAL_REVIEW_CATALOG, SPATIAL_REVIEW_READY, SPATIAL_REVIEW_REQUEST, SPATIAL_REVIEW_RESOURCE_REQUEST, SPATIAL_REVIEW_RESOURCE_RESPONSE, SPATIAL_REVIEW_RESOURCE_TRANSFER_CAPABILITY, type SpatialReviewCatalogRequest, type SpatialReviewProfile, type SpatialReviewResourceRequest, type SpatialReviewResourceResponse, type SpatialReviewResourceTransferOffer } from "@alterno-dev/spatial-review-protocol";
 import { SPATIAL_REVIEW_PROGRESSIVE_CAPABILITY, SPATIAL_REVIEW_GEOMETRY_TRANSFER_CAPABILITY, SPATIAL_REVIEW_ASSET_REQUEST, SPATIAL_REVIEW_ASSET_RESPONSE, type SpatialReviewAssetRequest, type SpatialReviewAssetResponse } from "@alterno-dev/spatial-review-protocol";
 import { prepareAssetTransfer } from "./geometry-transfer.js";
+import { SPATIAL_REVIEW_ASSEMBLIES_CAPABILITY } from "@alterno-dev/spatial-review-protocol";
 import type { SceneAssetRegistry } from "./registry.js";
 
 const DEFAULT_MAX_RESOURCE_BYTES = 16 * 1024 * 1024;
@@ -40,7 +41,7 @@ export function attachSceneAssetRegistryBridge(registry: SceneAssetRegistry, opt
     timers.add(timer);
   };
   const peerResourceLimits = new WeakMap<Window, number>();
-  const ready = { type: SPATIAL_REVIEW_READY, buildId: registry.buildId, actors: registry.size, navigationSequences: registry.navigationSize, capabilities: [SPATIAL_REVIEW_RESOURCE_TRANSFER_CAPABILITY, SPATIAL_REVIEW_PROGRESSIVE_CAPABILITY, SPATIAL_REVIEW_GEOMETRY_TRANSFER_CAPABILITY], resourceTransfer, geometryTransfer };
+  const ready = { type: SPATIAL_REVIEW_READY, buildId: registry.buildId, actors: registry.size, assemblies: registry.assemblySize, navigationSequences: registry.navigationSize, capabilities: [SPATIAL_REVIEW_ASSEMBLIES_CAPABILITY, SPATIAL_REVIEW_RESOURCE_TRANSFER_CAPABILITY, SPATIAL_REVIEW_PROGRESSIVE_CAPABILITY, SPATIAL_REVIEW_GEOMETRY_TRANSFER_CAPABILITY], resourceTransfer, geometryTransfer };
   const postReady = () => { if (window.parent !== window) { window.parent.postMessage(ready, "*"); window.parent.postMessage({ ...ready, type: LEGACY_SPATIAL_REVIEW_READY }, "*"); } window.opener?.postMessage(ready, "*"); window.opener?.postMessage({ ...ready, type: LEGACY_SPATIAL_REVIEW_READY }, "*"); };
   const postResource = (target: Window, origin: string, response: SpatialReviewResourceResponse, transfer: Transferable[] = []) => {
     if (disposed) return;
@@ -114,7 +115,7 @@ export function attachSceneAssetRegistryBridge(registry: SceneAssetRegistry, opt
     schedule(() => {
       try {
         target.postMessage({ type: legacy ? LEGACY_SPATIAL_REVIEW_CATALOG : SPATIAL_REVIEW_CATALOG, profile, requestId: request.requestId,
-          payload: registry.toReviewIndex(profile, legacy, progressive), resourceTransfer: { ...resourceTransfer, maxBytes: agreedLimit },
+          payload: registry.toReviewIndex(profile, legacy, progressive, !legacy && Array.isArray(request.capabilities) && request.capabilities.includes(SPATIAL_REVIEW_ASSEMBLIES_CAPABILITY)), resourceTransfer: { ...resourceTransfer, maxBytes: agreedLimit },
           ...(progressive ? { progressive: true, geometryTransfer: { ...geometryTransfer, maxBytes: agreedGeometry } } : {}) }, event.origin);
       } catch { /* Peer closed during capture. */ }
     });
