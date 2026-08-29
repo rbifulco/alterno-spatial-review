@@ -1,6 +1,6 @@
 {
   "name": "@alterno-dev/spatial-review",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Website SDK and Three.js adapter for Alterno Spatial Review.",
   "license": "MIT",
   "type": "module",
@@ -10,7 +10,7 @@
   "files": ["dist", "README.md"],
   "publishConfig": { "access": "public" },
   "scripts": { "build": "tsc -p tsconfig.json" },
-  "dependencies": { "@alterno-dev/spatial-review-protocol": "0.4.0" },
+  "dependencies": { "@alterno-dev/spatial-review-protocol": "0.5.0" },
   "peerDependencies": { "three": ">=0.160.0 <1" },
   "devDependencies": { "@types/three": "^0.185.4", "three": "^0.185.1" }
 }
