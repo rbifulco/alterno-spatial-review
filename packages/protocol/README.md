@@ -37,6 +37,9 @@ project locator. A fragment on an explicit locator is removed. Cross-origin
 locators, embedded credentials, and non-HTTP(S) URLs are rejected before any
 request is made.
 
+The same credential-free HTTP(S) rule applies to the discovery document's
+`websiteUrl`, `scene`, `assets`, and `liveCapture` fields and to bundle URLs.
+
 After a candidate succeeds, pass that response's actual URL to
 `normalizeSpatialReviewDiscovery()`. Relative `websiteUrl`, `scene`, `assets`,
 and `liveCapture` fields are resolved from the successful document, including

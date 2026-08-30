@@ -125,6 +125,80 @@ test("bridge negotiates streaming, reuses revisions, transfers typed instances, 
   }
 });
 
+test("cancelling an uncooperative producer immediately releases queue capacity", async () => {
+  const registry = new SceneAssetRegistry("stream-cancel-release-r1");
+  let calls = 0;
+  registry.registerDeferred(deferredRegistration(async (context) => {
+    calls += 1;
+    if (calls === 1) return await new Promise(() => {});
+    return streamedAsset(context.assetId, 1);
+  }));
+  const received = [];
+  let listener;
+  const editor = { postMessage(message) { received.push(message); } };
+  const originalWindow = globalThis.window;
+  globalThis.window = { location: { origin: "https://site.example" }, parent: editor, opener: null, addEventListener(_type, callback) { listener = callback; }, removeEventListener() {}, setTimeout };
+  let detach;
+  try {
+    detach = attachSceneAssetRegistryBridge(registry, { allowedOrigins: ["https://editor.example"], maxConcurrentAssetRequests: 1, maxInFlightBytes: 256_000 });
+    const send = (data) => listener({ data, origin: "https://editor.example", source: editor });
+    send({ type: SPATIAL_REVIEW_REQUEST, requestId: "catalog", profile: "review", capabilities: [SPATIAL_REVIEW_ASSET_STREAM_CAPABILITY], progressive: true, geometryTransfer: { capability: "geometry-transfer-v1", maxBytes: 256_000 } });
+    await wait();
+    const request = (requestId) => ({ type: SPATIAL_REVIEW_ASSET_REQUEST, requestId, buildId: registry.buildId, assetId: "deferred-city", profile: "review", stream: { capability: SPATIAL_REVIEW_ASSET_STREAM_CAPABILITY, representationId: "detail", maxBytes: 256_000, priority: "interactive" } });
+    send(request("stuck"));
+    await wait();
+    send({ type: SPATIAL_REVIEW_ASSET_CANCEL, requestId: "stuck", buildId: registry.buildId });
+    send(request("next"));
+    await wait(20);
+    assert.equal(received.filter((message) => message.requestId === "stuck" && message.type === SPATIAL_REVIEW_ASSET_RESPONSE).length, 1);
+    assert.equal(received.find((message) => message.requestId === "stuck" && message.type === SPATIAL_REVIEW_ASSET_RESPONSE).error, "cancelled");
+    assert.equal(received.find((message) => message.requestId === "next" && message.type === SPATIAL_REVIEW_ASSET_RESPONSE).ok, true);
+    assert.equal(registry.getSourceStatus().activeRequests, 0);
+  } finally {
+    detach?.();
+    globalThis.window = originalWindow;
+  }
+});
+
+test("source status counts active requests across every negotiated peer", async () => {
+  const registry = new SceneAssetRegistry("stream-global-status-r1");
+  const releases = [];
+  registry.registerDeferred(deferredRegistration(async (context) => {
+    await new Promise((resolve) => releases.push(resolve));
+    return streamedAsset(context.assetId, 1);
+  }));
+  const receivedA = [];
+  const receivedB = [];
+  let listener;
+  const editorA = { postMessage(message) { receivedA.push(message); } };
+  const editorB = { postMessage(message) { receivedB.push(message); } };
+  const originalWindow = globalThis.window;
+  globalThis.window = { location: { origin: "https://site.example" }, parent: editorA, opener: editorB, addEventListener(_type, callback) { listener = callback; }, removeEventListener() {}, setTimeout };
+  let detach;
+  try {
+    detach = attachSceneAssetRegistryBridge(registry, { allowedOrigins: ["https://editor.example"], maxConcurrentAssetRequests: 1, maxInFlightBytes: 256_000 });
+    const send = (source, data) => listener({ data, origin: "https://editor.example", source });
+    const catalog = { type: SPATIAL_REVIEW_REQUEST, profile: "review", capabilities: [SPATIAL_REVIEW_ASSET_STREAM_CAPABILITY], progressive: true, geometryTransfer: { capability: "geometry-transfer-v1", maxBytes: 256_000 } };
+    send(editorA, { ...catalog, requestId: "catalog-a" });
+    send(editorB, { ...catalog, requestId: "catalog-b" });
+    await wait();
+    const request = (requestId) => ({ type: SPATIAL_REVIEW_ASSET_REQUEST, requestId, buildId: registry.buildId, assetId: "deferred-city", profile: "review", stream: { capability: SPATIAL_REVIEW_ASSET_STREAM_CAPABILITY, representationId: "detail", maxBytes: 256_000, priority: "visible" } });
+    send(editorA, request("asset-a"));
+    send(editorB, request("asset-b"));
+    await wait();
+    assert.equal(registry.getSourceStatus().activeRequests, 2);
+    assert.equal(receivedA.filter((message) => message.type === "alterno:spatial-review:source-status").at(-1).activeRequests, 2);
+    assert.equal(receivedB.filter((message) => message.type === "alterno:spatial-review:source-status").at(-1).activeRequests, 2);
+    releases.splice(0).forEach((release) => release());
+    await wait(20);
+    assert.equal(registry.getSourceStatus().activeRequests, 0);
+  } finally {
+    releases.splice(0).forEach((release) => release());
+    detach?.();
+    globalThis.window = originalWindow;
+  }
+});
+
 test("unnegotiated peers keep the progressive geometry fallback", async () => {
   const registry = new SceneAssetRegistry("mixed-stream-r1");
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());

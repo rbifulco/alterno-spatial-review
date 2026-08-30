@@ -137,7 +137,10 @@ scoped to that authorized peer and build. The bridge bounds identifiers,
 descriptor counts, queue length, concurrency, per-request bytes, aggregate
 in-flight bytes, progress frequency, geometry values, and instance counts.
 Cancellation aborts the producer and prevents any later asset response from
-winning the race.
+winning the race. The bridge releases scheduler and byte reservations as soon as
+it accepts a cancellation, even if a faulty producer delays observing its
+`AbortSignal`; any late result is ignored. Producers must still stop promptly so
+cancelled work does not retain application-owned CPU, worker, or GPU resources.
 
 Consumers should validate the complete payload before GPU allocation. Cache
 entries must include protocol/schema versions, source origin, normalized

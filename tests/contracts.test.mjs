@@ -41,6 +41,20 @@ test("rejects unsafe discovery locators", () => {
   assert.throws(() => discoveryUrlsForWebsite("https://owner.github.io/project/", ""), /valid URL/);
 });
 
+test("rejects credentials in every discovery payload URL", () => {
+  const base = { schema: "spatial-review-discovery/v1", version: 1, name: "Fixture" };
+  for (const [field, value] of [
+    ["websiteUrl", "https://user:secret@site.example/project/"],
+    ["scene", "https://user:secret@site.example/scene.json"],
+    ["assets", "https://user:secret@site.example/assets.json"],
+    ["liveCapture", "https://user:secret@site.example/capture"],
+  ]) {
+    assert.throws(() => normalizeSpatialReviewDiscovery({ ...base, [field]: value, ...(field === "websiteUrl" ? { liveCapture: "/capture" } : {}) }, "https://site.example/.well-known/spatial-review.json"), /credentials/);
+  }
+  assert.throws(() => normalizeSpatialReviewDiscovery({ ...base, assets: "../assets.json" }, "https://user:secret@site.example/.well-known/spatial-review.json"), /credentials/);
+  assert.throws(() => normalizeSpatialReviewDiscovery({ ...base, assets: "https://site.example/assets.json" }, "https://user:secret@site.example/.well-known/spatial-review.json"), /credentials/);
+});
+
 test("normalizes a GitHub Pages project fixture against its successful document", async () => {
   const payload = JSON.parse(await readFile(new URL("./fixtures/github-pages-project/.well-known/spatial-review.json", import.meta.url), "utf8"));
   const discoveryUrl = "https://owner.github.io/project/.well-known/spatial-review.json";
@@ -189,6 +203,19 @@ test("discovers a live capture through the origin-checked browser bridge", () =>
     assert.equal(received[0].message.discoveryUrl, "https://site.example/project/.well-known/spatial-review.json");
     assert.equal("discoveryUrl" in received[0].message.discovery, false);
     detachExplicit();
+
+    received.length = 0;
+    globalThis.window.location.href = "https://site.example/project/app/capture.html";
+    const detachCustomBase = attachSpatialReviewDiscoveryBridge({
+      name: "Fixture",
+      websiteUrl: "https://site.example/project/",
+      discoveryUrl: "manifests/v1/review.json",
+      liveCapture: "../../capture",
+    }, { allowOfficialEditor: false, allowedOrigins: ["https://editor.example"] });
+    listener({ origin: "https://editor.example", source: editor, data: { type: SPATIAL_REVIEW_DISCOVERY_REQUEST, requestId: "discovery-4" } });
+    assert.equal(received[0].message.discoveryUrl, "https://site.example/project/manifests/v1/review.json");
+    assert.equal(received[0].message.discovery.liveCapture, "https://site.example/project/capture");
+    detachCustomBase();
   } finally {
     globalThis.window = originalWindow;
   }
@@ -317,6 +344,27 @@ test("advertises and reads registered texture resources", async () => {
   const resource = await registry.readTextureResource(map.resourceId, 1024);
   assert.equal(resource.contentType, "image/png");
   assert.ok(resource.bytes.byteLength > 0);
+});
+
+test("catalog revisions release superseded texture resource IDs without disposing website textures", () => {
+  const registry = new SceneAssetRegistry("texture-revision-fixture");
+  const firstTexture = new THREE.Texture();
+  const secondTexture = new THREE.Texture();
+  let disposedTextures = 0;
+  firstTexture.addEventListener("dispose", () => { disposedTextures += 1; });
+  secondTexture.addEventListener("dispose", () => { disposedTextures += 1; });
+  const firstRoot = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial({ map: firstTexture }));
+  const secondRoot = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial({ map: secondTexture }));
+  registry.register({ actorId: "fixture", assetId: "fixture", name: "Fixture", category: "Test", sourceRef: "fixture.ts", root: firstRoot });
+  const firstResourceId = registry.toReviewIndex("review").assetCatalog.assets[0].materials[0].maps[0].resourceId;
+  assert.equal(registry.hasTextureResource(firstResourceId), true);
+
+  registry.register({ actorId: "fixture", assetId: "fixture", name: "Fixture", category: "Test", sourceRef: "fixture.ts", root: secondRoot });
+  assert.equal(registry.hasTextureResource(firstResourceId), false);
+  const secondResourceId = registry.toReviewIndex("review").assetCatalog.assets[0].materials[0].maps[0].resourceId;
+  assert.notEqual(secondResourceId, firstResourceId);
+  assert.equal(registry.hasTextureResource(secondResourceId), true);
+  assert.equal(disposedTextures, 0, "the registry forgets references but never disposes website-owned textures");
 });
 
 test("transfers requested texture bytes through the origin-checked browser bridge", async () => {

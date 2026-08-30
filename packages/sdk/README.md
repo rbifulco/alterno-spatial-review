@@ -184,6 +184,13 @@ priority queues, aggregate in-flight bytes, cancellation, and revision-aware
 `notModified` responses. Streamed instance matrices use owned `Float32Array`
 buffers; ordinary JSON exports retain nested number arrays.
 
+Cancellation releases the bridge's queue and aggregate-byte reservation
+immediately and suppresses late producer results. Producers remain responsible
+for observing their `AbortSignal` and disposing only review-owned temporary
+work. Live texture IDs are leased to the serialized asset/representation that
+advertises them; superseded catalog resources are forgotten without disposing
+textures owned by the website.
+
 Read [Deferred asset streaming](../../docs/deferred-asset-streaming.md) for the
 registration example, wire order, status lifecycle, cache identity, migration
 fallback, and security limits.

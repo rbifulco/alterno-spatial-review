@@ -57,6 +57,7 @@ export type DeferredSceneAssetRegistration = {
 export type NavigationSequenceRegistration = NavigationSequence & { order?: number };
 type CachedAsset = { revision: string; asset: ReviewAsset3D };
 type AnySceneAssetRegistration = SceneAssetRegistration | DeferredSceneAssetRegistration;
+type TextureResourceEntry = { texture: THREE.Texture; owners: Set<string> };
 
 const statusPhaseOrder = new Map<SpatialReviewSourceStatusMessage["phase"], number>([
   ["booting", 0],
@@ -116,7 +117,9 @@ export class SceneAssetRegistry {
   private assetCache = new Map<string, CachedAsset>();
   private actorCache = new Map<string, { revision: string; actor: SceneReviewActor }>();
   private graph = new SceneGraphCache();
-  private textureResources = new Map<string, THREE.Texture>();
+  private textureResources = new Map<string, TextureResourceEntry>();
+  private textureResourceOwners = new Map<string, Set<string>>();
+  private textureResourceOwnerAssets = new Map<string, string>();
   private catalogVersion = 0;
   private sourceStatus: SpatialReviewSourceStatusMessage;
   private sourceStatusListeners = new Set<(status: SpatialReviewSourceStatusMessage) => void>();
@@ -208,7 +211,8 @@ export class SceneAssetRegistry {
     this.sourceStatusListeners.forEach((listener) => listener(structuredClone(this.sourceStatus)));
     const affected = new Set(assetIds);
     this.assetCache.forEach((entry, key) => { if (affected.has(entry.asset.id)) this.assetCache.delete(key); });
-    if (!this.registrations.size && !this.deferredRegistrations.size) this.textureResources.clear();
+    this.textureResourceOwnerAssets.forEach((assetId, owner) => { if (affected.has(assetId)) this.releaseTextureResourceOwner(owner); });
+    if (!this.registrations.size && !this.deferredRegistrations.size) this.clearTextureResources();
   }
   registerNavigationSequence(registration: NavigationSequenceRegistration) {
     if (!registration.id.trim()) throw new Error("Navigation sequence id cannot be empty.");
@@ -228,6 +232,37 @@ export class SceneAssetRegistry {
     return this.orderedEntries;
   }
   private revision(entry: SceneAssetRegistration) { return entry.roots.map((root) => this.graph.inspect(root).revision).join(":"); }
+  private releaseTextureResourceOwner(owner: string) {
+    const resourceIds = this.textureResourceOwners.get(owner);
+    resourceIds?.forEach((resourceId) => {
+      const resource = this.textureResources.get(resourceId);
+      if (!resource) return;
+      resource.owners.delete(owner);
+      if (!resource.owners.size) this.textureResources.delete(resourceId);
+    });
+    this.textureResourceOwners.delete(owner);
+    this.textureResourceOwnerAssets.delete(owner);
+  }
+  private replaceTextureResources(owner: string, assetId: string, resources: Map<string, THREE.Texture>) {
+    this.releaseTextureResourceOwner(owner);
+    const resourceIds = new Set<string>();
+    resources.forEach((texture, resourceId) => {
+      const resource = this.textureResources.get(resourceId) ?? { texture, owners: new Set<string>() };
+      resource.texture = texture;
+      resource.owners.add(owner);
+      this.textureResources.set(resourceId, resource);
+      resourceIds.add(resourceId);
+    });
+    if (resourceIds.size) {
+      this.textureResourceOwners.set(owner, resourceIds);
+      this.textureResourceOwnerAssets.set(owner, assetId);
+    }
+  }
+  private clearTextureResources() {
+    this.textureResources.clear();
+    this.textureResourceOwners.clear();
+    this.textureResourceOwnerAssets.clear();
+  }
   private estimateBytes(entry: SceneAssetRegistration, profile: SpatialReviewProfile, instanceComponentBytes = 8) {
     const seen = new Set<THREE.BufferGeometry>(); let bytes = 0; let triangles = 0; let instances = 0;
     entry.roots.forEach((root) => root.traverse((object) => {
@@ -271,13 +306,15 @@ export class SceneAssetRegistry {
     const key = `${profile}:${compact}:${entry.assetId}`; const revision = this.revision(entry);
     const cached = this.assetCache.get(key);
     if (cached?.revision === revision) return cached.asset;
+    const resources = new Map<string, THREE.Texture>();
     const asset = assetFromObject3DRoots(entry.roots, entry.name, entry.sourceRef, {
       assetId: entry.assetId, category: entry.category, tags: [...(entry.tags ?? []), "registered", profile], profile,
-      geometryEncoding: compact ? "typed" : "json", onTexture: (resourceId, texture) => this.textureResources.set(resourceId, texture),
+      geometryEncoding: compact ? "typed" : "json", onTexture: (resourceId, texture) => resources.set(resourceId, texture),
       // A single root is the placement's visibility switch. Multiple roots
       // are asset parts: one actor flag cannot encode their individual states.
       ignoreRootVisibility: this.assemblyRegistrations.size > 0 && entry.roots.length === 1,
     });
+    this.replaceTextureResources(`eager:${key}`, entry.assetId, resources);
     this.assetCache.set(key, { revision, asset }); return asset;
   }
   private document(profile: SpatialReviewProfile, metadata = false, stream = false): AssetReviewDocument3D {
@@ -320,7 +357,9 @@ export class SceneAssetRegistry {
       if (produced instanceof THREE.Object3D || Array.isArray(produced)) {
         const roots = produced instanceof THREE.Object3D ? [produced] : produced;
         if (!roots.length || roots.some((root) => !(root instanceof THREE.Object3D))) throw new Error("The deferred asset producer returned invalid Three.js roots.");
-        asset = assetFromObject3DRoots(roots, entry.name, entry.sourceRef, { assetId: entry.assetId, category: entry.category, tags: [...(entry.tags ?? []), "registered", profile], profile, geometryEncoding: "typed", onTexture: (resourceId, texture) => this.textureResources.set(resourceId, texture) });
+        const resources = new Map<string, THREE.Texture>();
+        asset = assetFromObject3DRoots(roots, entry.name, entry.sourceRef, { assetId: entry.assetId, category: entry.category, tags: [...(entry.tags ?? []), "registered", profile], profile, geometryEncoding: "typed", onTexture: (resourceId, texture) => resources.set(resourceId, texture) });
+        this.replaceTextureResources(`deferred:${profile}:${entry.assetId}:${representation.id}`, entry.assetId, resources);
       } else asset = produced;
       if (asset.id !== entry.assetId) throw new Error(`Deferred asset producer returned "${asset.id}" for requested asset "${entry.assetId}".`);
     } else {
@@ -375,5 +414,5 @@ export class SceneAssetRegistry {
       scene: this.toScene(!legacy && hierarchical, stream), assetCatalog: this.document(profile, metadata, stream) };
   }
   hasTextureResource(resourceId: string) { return this.textureResources.has(resourceId); }
-  async readTextureResource(resourceId: string, maxBytes: number) { const texture = this.textureResources.get(resourceId); return texture ? readTextureResource(texture, maxBytes) : undefined; }
+  async readTextureResource(resourceId: string, maxBytes: number) { const resource = this.textureResources.get(resourceId); return resource ? readTextureResource(resource.texture, maxBytes) : undefined; }
 }

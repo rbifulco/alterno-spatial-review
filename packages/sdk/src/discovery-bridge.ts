@@ -47,13 +47,14 @@ export function attachSpatialReviewDiscoveryBridge(
     || Boolean(options.allowOrigin?.(origin))
     || (loopback(window.location.origin) && loopback(origin));
   const { discoveryUrl: registeredDiscoveryUrl, ...documentRegistration } = registration;
+  const websiteUrl = new URL(registration.websiteUrl ?? window.location.origin, window.location.href).href;
+  const discoveryUrl = discoveryUrlsForWebsite(websiteUrl, registeredDiscoveryUrl)[0];
   const discovery = normalizeSpatialReviewDiscovery({
     schema: SPATIAL_REVIEW_DISCOVERY_SCHEMA,
     version: 1,
     ...documentRegistration,
-    websiteUrl: registration.websiteUrl ?? window.location.origin,
-  }, window.location.href);
-  const discoveryUrl = discoveryUrlsForWebsite(discovery.websiteUrl, registeredDiscoveryUrl)[0];
+    websiteUrl,
+  }, discoveryUrl);
 
   const onMessage = (event: MessageEvent) => {
     if (!allowed(event.origin) || (event.source !== window.parent && event.source !== window.opener)) return;

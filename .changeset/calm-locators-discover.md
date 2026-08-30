@@ -7,4 +7,5 @@
 
 Add explicit and project-relative discovery locators across the protocol, SDK,
 validator release set, and CLI while preserving canonical root discovery for
-existing integrations.
+existing integrations. Resolve browser-bridge fields from the advertised
+manifest URL and reject embedded credentials in every discovery payload URL.

@@ -10,6 +10,7 @@ function webUrl(value: string, base: string, label: string) {
   let url: URL;
   try { url = new URL(value, base); } catch { throw new Error(`${label} is not a valid URL.`); }
   if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error(`${label} must use HTTP or HTTPS.`);
+  if (url.username || url.password) throw new Error(`${label} must not contain credentials.`);
   url.hash = "";
   return url.href;
 }
@@ -60,6 +61,7 @@ export function discoveryUrlsForWebsite(websiteUrl: string, explicitDiscoveryUrl
 }
 
 export function normalizeSpatialReviewDiscovery(payload: unknown, discoveryUrl: string): SpatialReviewDiscovery {
+  const normalizedDiscoveryUrl = webUrl(discoveryUrl, discoveryUrl, "discoveryUrl");
   const value = record(payload, "Spatial Review discovery document");
   if (value.schema !== SPATIAL_REVIEW_DISCOVERY_SCHEMA) throw new Error(`Unsupported discovery schema. Expected ${SPATIAL_REVIEW_DISCOVERY_SCHEMA}.`);
   if (value.version !== 1) throw new Error("Unsupported Spatial Review discovery version.");
@@ -67,10 +69,10 @@ export function normalizeSpatialReviewDiscovery(payload: unknown, discoveryUrl: 
     schema: SPATIAL_REVIEW_DISCOVERY_SCHEMA,
     version: 1,
     name: typeof value.name === "string" && value.name.trim() ? value.name.trim() : "Integrated website",
-    websiteUrl: webUrl(typeof value.websiteUrl === "string" ? value.websiteUrl : new URL(discoveryUrl).origin, discoveryUrl, "websiteUrl"),
-    scene: optionalUrl(value.scene, discoveryUrl, "scene"),
-    assets: optionalUrl(value.assets, discoveryUrl, "assets"),
-    liveCapture: optionalUrl(value.liveCapture, discoveryUrl, "liveCapture"),
+    websiteUrl: webUrl(typeof value.websiteUrl === "string" ? value.websiteUrl : new URL(normalizedDiscoveryUrl).origin, normalizedDiscoveryUrl, "websiteUrl"),
+    scene: optionalUrl(value.scene, normalizedDiscoveryUrl, "scene"),
+    assets: optionalUrl(value.assets, normalizedDiscoveryUrl, "assets"),
+    liveCapture: optionalUrl(value.liveCapture, normalizedDiscoveryUrl, "liveCapture"),
   };
   if (!result.scene && !result.assets && !result.liveCapture) throw new Error("The website advertises no scene, asset, or live-capture transport.");
   return result;

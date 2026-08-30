@@ -76,6 +76,7 @@ type PeerState = {
   inFlightBytes: number;
   lastStatusAt: number;
   lastStatusPhase?: SpatialReviewSourceStatusMessage["phase"];
+  lastStatusActiveRequests?: number;
 };
 
 function loopback(origin: string) {
@@ -171,16 +172,19 @@ export function attachSceneAssetRegistryBridge(registry: SceneAssetRegistry, opt
     window.opener?.postMessage({ ...ready, type: LEGACY_SPATIAL_REVIEW_READY }, "*");
   };
 
+  const activeRequestCount = () => [...peerStates.values()].reduce((total, state) => total + state.active.size, 0);
   const postStatus = (target: Window, state: PeerState, status: SpatialReviewSourceStatusMessage, force = false) => {
     if (!state.stream || !state.readyForStatus) return;
     const now = Date.now();
-    if (!force && state.lastStatusPhase === status.phase && now - state.lastStatusAt < progressIntervalMs) return;
+    if (!force && state.lastStatusPhase === status.phase && state.lastStatusActiveRequests === status.activeRequests && now - state.lastStatusAt < progressIntervalMs) return;
     state.lastStatusAt = now;
     state.lastStatusPhase = status.phase;
+    state.lastStatusActiveRequests = status.activeRequests;
     post(target, state.origin, status);
   };
   const broadcastStatus = (status = registry.getSourceStatus(), force = false) => {
-    peerStates.forEach((state, target) => postStatus(target, state, status, force));
+    const globalStatus = { ...status, activeRequests: activeRequestCount() };
+    peerStates.forEach((state, target) => postStatus(target, state, globalStatus, force));
   };
   const stopStatusListener = registry.onSourceStatus((status) => broadcastStatus(status));
 
@@ -227,9 +231,20 @@ export function attachSceneAssetRegistryBridge(registry: SceneAssetRegistry, opt
     post(job.target, job.origin, response, transfer);
   };
   const releaseJob = (state: PeerState, job: StreamJob) => {
-    if (!state.active.has(job.request.requestId)) return;
+    if (state.active.get(job.request.requestId) !== job) return false;
     state.active.delete(job.request.requestId);
     state.inFlightBytes = Math.max(0, state.inFlightBytes - job.reservation);
+    return true;
+  };
+  const syncActiveRequestStatus = () => {
+    const current = registry.getSourceStatus();
+    registry.setSourceStatus({
+      phase: current.phase === "catalog-ready" && activeRequestCount() > 0 ? "streaming" : current.phase,
+      expectedActors: current.expectedActors,
+      readyActors: current.readyActors,
+      activeRequests: activeRequestCount(),
+      message: current.message,
+    });
   };
 
   const pump = (target: Window, state: PeerState) => {
@@ -240,11 +255,7 @@ export function attachSceneAssetRegistryBridge(registry: SceneAssetRegistry, opt
       const [job] = state.queue.splice(index, 1);
       state.active.set(job.request.requestId, job);
       state.inFlightBytes += job.reservation;
-      if (registry.getSourceStatus().phase === "catalog-ready") {
-        const current = registry.getSourceStatus();
-        registry.setSourceStatus({ phase: "streaming", expectedActors: current.expectedActors, readyActors: current.readyActors, activeRequests: state.active.size, message: current.message });
-      }
-      else postStatus(target, state, { ...registry.getSourceStatus(), activeRequests: state.active.size });
+      syncActiveRequestStatus();
       postProgress(job, { phase: "generating" }, true);
       void (async () => {
         const base = responseBase(job.request, job.profile);
@@ -264,8 +275,7 @@ export function attachSceneAssetRegistryBridge(registry: SceneAssetRegistry, opt
           const cancelled = job.controller.signal.aborted || (error instanceof DOMException && error.name === "AbortError");
           finishJob(state, job, { ...base, ok: false, error: cancelled ? "cancelled" : error instanceof RangeError ? "too-large" : "unavailable", representationId: job.representation.id, revision: job.representation.revision });
         } finally {
-          releaseJob(state, job);
-          postStatus(target, state, { ...registry.getSourceStatus(), activeRequests: state.active.size });
+          if (releaseJob(state, job)) syncActiveRequestStatus();
           pump(target, state);
         }
       })();
@@ -363,6 +373,8 @@ export function attachSceneAssetRegistryBridge(registry: SceneAssetRegistry, opt
     if (active) {
       active.controller.abort();
       finishJob(state, active, { ...responseBase(active.request, active.profile), ok: false, error: "cancelled", representationId: active.representation.id, revision: active.representation.revision });
+      if (releaseJob(state, active)) syncActiveRequestStatus();
+      pump(target, state);
     }
   };
 
@@ -391,7 +403,12 @@ export function attachSceneAssetRegistryBridge(registry: SceneAssetRegistry, opt
     state.readyForStatus = false;
     if (!stream) {
       state.queue.splice(0).forEach((job) => { job.terminal = true; });
-      state.active.forEach((job) => job.controller.abort());
+      state.active.forEach((job) => {
+        job.terminal = true;
+        job.controller.abort();
+        releaseJob(state, job);
+      });
+      syncActiveRequestStatus();
     }
     schedule(() => {
       try {
@@ -432,9 +449,14 @@ export function attachSceneAssetRegistryBridge(registry: SceneAssetRegistry, opt
     stopStatusListener();
     peerStates.forEach((state) => {
       state.queue.splice(0).forEach((job) => { job.terminal = true; });
-      state.active.forEach((job) => job.controller.abort());
+      state.active.forEach((job) => {
+        job.terminal = true;
+        job.controller.abort();
+      });
       state.active.clear();
+      state.inFlightBytes = 0;
     });
+    syncActiveRequestStatus();
     timers.forEach((timer) => clearTimeout(timer));
     timers.clear();
     window.removeEventListener("message", onMessage);

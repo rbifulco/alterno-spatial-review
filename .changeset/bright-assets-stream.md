@@ -8,4 +8,6 @@
 Add negotiated deferred asset streaming, cancellable asynchronous SDK producers,
 revision-aware representation requests, bounded progress/status messages, and
 typed instance transfer buffers while retaining complete and progressive legacy
-fallbacks.
+fallbacks. Cancellation releases scheduler capacity even when a producer is
+uncooperative, source status aggregates all peers, and superseded live texture
+leases no longer survive their asset revision.
