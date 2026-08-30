@@ -84,6 +84,21 @@ policy in addition to these type contracts. Empty descriptor geometry is a
 loading state; it is not a replacement for detailed asset data in a complete
 export. Peers that do not negotiate the extension retain the full-catalog path.
 
+## Deferred asset streaming
+
+`asset-stream-v1` builds on progressive catalogs with representation metadata,
+asynchronous production, priorities, progress, cancellation, opaque revisions,
+and `knownRevision` / `notModified` reuse. `matrix-f32-v1` transfers exact,
+owned typed instance buffers without changing the JSON snapshot encoding.
+
+The extension is explicitly negotiated and does not reinterpret existing
+messages. Older progressive peers continue to request one family by asset and
+profile; non-progressive peers continue to receive the complete catalog.
+Deferred-only registrations are omitted for peers that cannot request them.
+
+See the [complete contract and migration guide](../../docs/deferred-asset-streaming.md)
+and the [live-transfer JSON schema](../../schemas/asset-stream-v1.schema.json).
+
 The package exports the official editor origin and
 `spatialReviewEditorUrl(websiteUrl)` as convenience values. Exporting an origin
 does not itself authorize access; origin authorization is applied by a website

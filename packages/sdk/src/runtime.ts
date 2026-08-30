@@ -290,10 +290,25 @@ function createNodeObject(node: AssetNode, asset: ReviewAsset3D, mode: AssetView
   };
   if (node.type === "line") return owned(new THREE.LineSegments(geometry, meshMaterials[0]));
   if (node.type === "points") return owned(new THREE.Points(geometry, meshMaterials[0] as THREE.PointsMaterial));
-  if (node.instances?.length) {
-    const mesh = new THREE.InstancedMesh(geometry, meshMaterials.length === 1 ? meshMaterials[0] : meshMaterials, node.instances.length);
-    node.instances.forEach((values, index) => mesh.setMatrixAt(index, new THREE.Matrix4().fromArray(values)));
+  if (node.instances && node.instanceData) throw new TypeError(`Asset node "${node.id}" uses both legacy and typed instance encodings.`);
+  const instanceCount = node.instanceData?.count ?? node.instances?.length ?? 0;
+  if (instanceCount) {
+    if (node.instanceData && (node.instanceData.encoding !== "matrix-f32-v1" || node.instanceData.transforms.length !== instanceCount * 16)) throw new TypeError(`Asset node "${node.id}" has invalid typed instance transforms.`);
+    const mesh = new THREE.InstancedMesh(geometry, meshMaterials.length === 1 ? meshMaterials[0] : meshMaterials, instanceCount);
+    for (let index = 0; index < instanceCount; index += 1) {
+      const values = node.instanceData?.transforms ?? node.instances![index];
+      mesh.setMatrixAt(index, new THREE.Matrix4().fromArray(values, node.instanceData ? index * 16 : 0));
+      const colors = node.instanceData?.colors;
+      if (colors) {
+        const channels = colors.length / instanceCount;
+        const scale = colors instanceof Uint8Array ? 1 / 255 : 1;
+        mesh.setColorAt(index, new THREE.Color(colors[index * channels] * scale, colors[index * channels + 1] * scale, colors[index * channels + 2] * scale));
+      }
+    }
     mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    if (node.instanceData?.stableIds) mesh.userData.spatialReviewStableInstanceIds = node.instanceData.stableIds;
+    if (node.instanceData?.selection) mesh.userData.spatialReviewInstanceSelection = node.instanceData.selection;
     return owned(mesh);
   }
   return owned(new THREE.Mesh(geometry, meshMaterials.length === 1 ? meshMaterials[0] : meshMaterials));

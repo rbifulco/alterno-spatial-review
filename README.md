@@ -276,6 +276,7 @@ on what each contract means.
 | Export a camera or scroll spline for review | [Export navigation sequences](agents/exporting-navigation-sequences.md) |
 | Develop against a local checkout | [Install from source](docs/install-from-source.md) |
 | Understand manifests, origins, and capture | [Website integration reference](docs/integrating-a-website.md) |
+| Stream large or procedural review assets on demand | [Deferred asset streaming](docs/deferred-asset-streaming.md) |
 | Propose an interoperable contract change | [Protocol change process](docs/governance/protocol-changes.md) |
 | Prepare and publish a release | [Maintainer release process](docs/governance/releases.md) |
 

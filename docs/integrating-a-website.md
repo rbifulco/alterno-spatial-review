@@ -81,6 +81,15 @@ attachSceneAssetRegistryBridge(registry, {
 });
 ```
 
+Large or procedural scenes can publish actor bounds and overview/detail
+metadata before generating geometry. Use `registerDeferred()` and configure the
+bridge's concurrency and in-flight byte ceilings; its producer receives an
+`AbortSignal`, request priority, and bounded progress callback. Keep eager
+`register()` entries for any assets that must remain available to editors that
+do not negotiate `asset-stream-v1`. The full API, cache identity, typed-instance
+encoding, and migration rules are in
+[Deferred asset streaming](deferred-asset-streaming.md).
+
 A navigation sequence carries camera and aim trajectories, named stops,
 relative segment timing, and FOV transitions. Keep its stop, segment, and point
 IDs stable and give authored controls source references so feedback can map

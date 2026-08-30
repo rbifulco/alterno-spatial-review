@@ -11,6 +11,10 @@ import type {
   SPATIAL_REVIEW_RESOURCE_RESPONSE,
   SPATIAL_REVIEW_RESOURCE_TRANSFER_CAPABILITY,
   SPATIAL_REVIEW_ASSEMBLIES_CAPABILITY,
+  SPATIAL_REVIEW_ASSET_CANCEL,
+  SPATIAL_REVIEW_ASSET_PROGRESS,
+  SPATIAL_REVIEW_ASSET_STREAM_CAPABILITY,
+  SPATIAL_REVIEW_SOURCE_STATUS,
 } from "./constants.js";
 
 export type Vec2 = [number, number];
@@ -28,7 +32,31 @@ export type AssetGeometry =
 export type AssetGeometryDefinition = { id: string; name?: string; geometry: AssetGeometry };
 export type AssetTextureMap = { slot: string; name?: string; sourceRef?: string; resourceId?: string; wrap?: "clamp" | "repeat"; repeat?: Vec2; offset?: Vec2; rotation?: number; flipY?: boolean };
 export type AssetMaterial = { id: string; name: string; type: "standard" | "basic" | "phong" | "unknown"; color: string; emissive?: string; roughness?: number; metalness?: number; opacity: number; doubleSided: boolean; wireframe?: boolean; maps?: AssetTextureMap[] };
-export type AssetNode = { id: string; name: string; type: "group" | "mesh" | "line" | "points"; parentId?: string; position: Vec3; rotation: Vec3; scale: Vec3; visible: boolean; geometry?: AssetGeometry; geometryId?: string; materialIds: string[]; instances?: number[][]; sourceRef?: string };
+export type AssetInstanceData = {
+  encoding: "matrix-f32-v1";
+  count: number;
+  transforms: Float32Array;
+  colors?: Float32Array | Uint8Array;
+  stableIds?: Uint32Array;
+  selection?: "aggregate" | "instance";
+};
+export type AssetRepresentationDescriptor = {
+  id: string;
+  purpose: "overview" | "detail";
+  revision: string;
+  estimatedBytes: number;
+  triangles?: number;
+  instances?: number;
+  attributes: Array<"position" | "normal" | "uv" | "color">;
+  /** Metres, when known. */
+  geometricError?: number;
+};
+export type AssetStreamDescriptor = {
+  capability: typeof SPATIAL_REVIEW_ASSET_STREAM_CAPABILITY;
+  revision: string;
+  representations: AssetRepresentationDescriptor[];
+};
+export type AssetNode = { id: string; name: string; type: "group" | "mesh" | "line" | "points"; parentId?: string; position: Vec3; rotation: Vec3; scale: Vec3; visible: boolean; geometry?: AssetGeometry; geometryId?: string; materialIds: string[]; instances?: number[][]; instanceData?: AssetInstanceData; sourceRef?: string };
 export type AssetSurfaceAnchor = { nodeId: string; instanceId?: number; localPosition: Vec3; localNormal?: Vec3; uv?: Vec2 };
 export type AssetAnnotation = { id: string; body: string; category: string; priority: "low" | "medium" | "high" | "blocker"; target: { scope: "asset" | "component" | "geometry" | "material"; nodeId?: string; materialId?: string }; anchor?: AssetSurfaceAnchor; createdAt: string; author?: string; resolved: boolean };
 export type AssetPartModification =
@@ -36,7 +64,7 @@ export type AssetPartModification =
   | { id: string; action: "delete"; part: { id: string; name: string; sourceRef?: string }; removedNodes?: Array<{ node: AssetNode; index: number }> }
   | { id: string; action: "add"; node: AssetNode; material?: AssetMaterial };
 export type AssetFeedback = { status: "unreviewed" | "needs-change" | "question" | "approved"; summary: string; annotations: AssetAnnotation[]; modifications: AssetPartModification[] };
-export type ReviewAsset3D = { id: string; name: string; sourceRef?: string; category?: string; tags: string[]; nodes: AssetNode[]; geometries?: AssetGeometryDefinition[]; materials: AssetMaterial[]; sourceTransform?: Transform3D; animations?: string[]; feedback: AssetFeedback };
+export type ReviewAsset3D = { id: string; name: string; sourceRef?: string; category?: string; tags: string[]; nodes: AssetNode[]; geometries?: AssetGeometryDefinition[]; materials: AssetMaterial[]; sourceTransform?: Transform3D; animations?: string[]; stream?: AssetStreamDescriptor; feedback: AssetFeedback };
 export type AssetReviewDocument3D = { schema: typeof ASSET_REVIEW_SCHEMA; id: string; name: string; units: "m"; source?: { label?: string; url?: string; importedAt?: string; generator?: string }; assets: ReviewAsset3D[] };
 
 export type Bounds3D = { center: Vec3; size: Vec3 };
@@ -207,6 +235,22 @@ export type SpatialReviewCatalogMessage = {
   resourceTransfer?: SpatialReviewResourceTransferOffer;
   progressive?: boolean;
   geometryTransfer?: { capability: "geometry-transfer-v1"; maxBytes: number };
+  assetStream?: SpatialReviewAssetStreamOffer;
+};
+
+export type SpatialReviewAssetStreamCapability = typeof SPATIAL_REVIEW_ASSET_STREAM_CAPABILITY;
+export type SpatialReviewAssetStreamOffer = {
+  capability: SpatialReviewAssetStreamCapability;
+  maxConcurrentRequests: number;
+  maxInFlightBytes: number;
+};
+
+export type SpatialReviewAssetStreamRequest = {
+  capability: SpatialReviewAssetStreamCapability;
+  representationId: string;
+  maxBytes: number;
+  priority: "interactive" | "visible" | "background";
+  knownRevision?: string;
 };
 
 export type SpatialReviewAssetRequest = {
@@ -215,6 +259,7 @@ export type SpatialReviewAssetRequest = {
   buildId: string;
   assetId: string;
   profile: SpatialReviewProfile;
+  stream?: SpatialReviewAssetStreamRequest;
 };
 export type SpatialReviewAssetResponse = {
   type: "alterno:spatial-review:asset-response";
@@ -222,7 +267,36 @@ export type SpatialReviewAssetResponse = {
   buildId: string;
   assetId: string;
   profile: SpatialReviewProfile;
-} & ({ ok: true; asset: ReviewAsset3D } | { ok: false; error: "not-found" | "too-large" | "unavailable" | "busy" });
+} & (
+  | { ok: true; asset: ReviewAsset3D; representationId?: string; revision?: string; notModified?: false }
+  | { ok: true; notModified: true; representationId: string; revision: string }
+  | { ok: false; error: "not-found" | "too-large" | "unavailable" | "busy" | "cancelled"; representationId?: string; revision?: string; retryAfterMs?: number }
+);
+export type SpatialReviewSourceStatusMessage = {
+  type: typeof SPATIAL_REVIEW_SOURCE_STATUS;
+  buildId: string;
+  catalogRevision: string;
+  phase: "booting" | "catalog-ready" | "streaming" | "complete" | "error";
+  expectedActors?: number;
+  readyActors?: number;
+  activeRequests?: number;
+  message?: string;
+};
+export type SpatialReviewAssetProgressMessage = {
+  type: typeof SPATIAL_REVIEW_ASSET_PROGRESS;
+  requestId: string;
+  buildId: string;
+  assetId: string;
+  representationId: string;
+  phase: "queued" | "generating" | "serializing";
+  completed?: number;
+  total?: number;
+};
+export type SpatialReviewAssetCancelMessage = {
+  type: typeof SPATIAL_REVIEW_ASSET_CANCEL;
+  requestId: string;
+  buildId: string;
+};
 export type SpatialReviewResourceRequest = {
   type: typeof SPATIAL_REVIEW_RESOURCE_REQUEST;
   requestId: string;

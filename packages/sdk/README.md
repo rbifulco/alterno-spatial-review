@@ -175,6 +175,19 @@ Upgrading an editor alone cannot enable partial catalogs on an older bridge.
 This work includes a coordinated release Changeset; the development changes do
 not publish or deploy a release automatically.
 
+For geometry that should not exist until requested, use
+`registry.registerDeferred()`. Negotiated `asset-stream-v1` catalogs expose its
+world transform, bounds, and immutable overview/detail revisions before calling
+the asynchronous producer. The producer receives the lower byte budget, request
+priority, an `AbortSignal`, and progress callback. The bridge enforces bounded
+priority queues, aggregate in-flight bytes, cancellation, and revision-aware
+`notModified` responses. Streamed instance matrices use owned `Float32Array`
+buffers; ordinary JSON exports retain nested number arrays.
+
+Read [Deferred asset streaming](../../docs/deferred-asset-streaming.md) for the
+registration example, wire order, status lifecycle, cache identity, migration
+fallback, and security limits.
+
 ## Register camera journeys
 
 `registerNavigationSequence()` exposes an engine-neutral, semantically named
