@@ -71,6 +71,34 @@ The package also exports `buildThreeAsset()`, `makeAssetGeometry()`, and
 `disposeThreeAsset()` for websites that render an engine-neutral
 `ReviewAsset3D` contract back into a Three.js hierarchy.
 
+`buildThreeAsset()` remains synchronous and never fetches texture references.
+Use `buildThreeAssetAsync()` when a trusted integration wants to hydrate the
+protocol's supported material-map slots:
+
+```ts
+const textureCache = new Map<string, Promise<THREE.Texture>>();
+const built = await buildThreeAssetAsync(asset, {
+  resolveTexture(map) {
+    if (!map.sourceRef) throw new Error("This integration requires a source URL.");
+    const url = new URL(map.sourceRef, approvedAssetBaseUrl);
+    if (url.origin !== approvedAssetBaseUrl.origin) throw new Error("Cross-origin texture rejected.");
+    let pending = textureCache.get(url.href);
+    if (!pending) {
+      pending = new THREE.TextureLoader().loadAsync(url.href);
+      textureCache.set(url.href, pending);
+    }
+    return pending;
+  },
+});
+```
+
+The SDK calls only the supplied resolver; source allowlists, credentials,
+response-size limits, decoding, and live `resourceId` lookup remain application
+policy. Resolver results are caller-owned cache entries. Each material binding
+receives a Texture clone that shares the decoded source while retaining its own
+wrap, repeat, offset, rotation, `flipY`, and color-space settings. Existing
+hierarchies can use `hydrateThreeAssetTextures(asset, built, resolver)` directly.
+
 ## Large scenes and resource ownership
 
 Register each independently reviewable actor with its own stable `actorId`.

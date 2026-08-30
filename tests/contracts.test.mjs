@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import * as THREE from "three";
-import { SceneAssetRegistry, attachSceneAssetRegistryBridge, attachSpatialReviewDiscoveryBridge, buildThreeAsset, disposeThreeAsset } from "../packages/sdk/dist/index.js";
+import { SceneAssetRegistry, assetFromObject3DRoots, attachSceneAssetRegistryBridge, attachSpatialReviewDiscoveryBridge, buildThreeAsset, buildThreeAssetAsync, disposeThreeAsset } from "../packages/sdk/dist/index.js";
 import { OFFICIAL_SPATIAL_REVIEW_EDITOR_ORIGIN, SPATIAL_REVIEW_CATALOG, SPATIAL_REVIEW_DISCOVERY_REQUEST, SPATIAL_REVIEW_DISCOVERY_RESPONSE, SPATIAL_REVIEW_INDEX_SCHEMA, SPATIAL_REVIEW_REQUEST, SPATIAL_REVIEW_RESOURCE_REQUEST, SPATIAL_REVIEW_RESOURCE_RESPONSE, SPATIAL_REVIEW_RESOURCE_TRANSFER_CAPABILITY, discoveryUrlForWebsite, normalizeSpatialReviewDiscovery, spatialReviewEditorUrl } from "../packages/protocol/dist/index.js";
 import { validateAssetDocument, validateReviewIndex } from "../packages/validator/dist/index.js";
 
@@ -333,4 +333,142 @@ test("builds a Three.js hierarchy from the engine-neutral asset contract", () =>
   assert.equal(built.nodes.get("deck")?.parent, built.nodes.get("root"));
   assert.ok(built.nodes.get("deck") instanceof THREE.Mesh);
   disposeThreeAsset(built.root);
+});
+
+function mappedAsset(maps) {
+  return {
+    id: "textured-plane",
+    name: "Textured plane",
+    tags: [],
+    nodes: [{
+      id: "plane",
+      name: "Plane",
+      type: "mesh",
+      position: [0, 0, 0],
+      rotation: [0, 0, 0],
+      scale: [1, 1, 1],
+      visible: true,
+      geometry: { kind: "primitive", primitive: "box", dimensions: [2, 2, 0.05] },
+      materialIds: ["photo"],
+    }],
+    materials: [{
+      id: "photo",
+      name: "Photo",
+      type: "standard",
+      color: "#ffffff",
+      emissive: "#222222",
+      roughness: 1,
+      metalness: 0,
+      opacity: 1,
+      doubleSided: true,
+      maps,
+    }],
+    feedback: { status: "unreviewed", summary: "", annotations: [], modifications: [] },
+  };
+}
+
+test("explicitly hydrates every supported material map and retains it through live serialization", async () => {
+  const slots = ["map", "normalMap", "bumpMap", "roughnessMap", "metalnessMap", "aoMap", "emissiveMap", "alphaMap"];
+  const sourceRef = "data:image/png;base64,iVBORw0KGgo=";
+  const maps = slots.map((slot, index) => ({
+    slot,
+    name: `${slot} fixture`,
+    sourceRef,
+    wrap: index % 2 ? "repeat" : "clamp",
+    repeat: [index + 1, index + 2],
+    offset: [index / 10, index / 20],
+    rotation: index / 8,
+    flipY: index % 2 === 0,
+  }));
+  const asset = mappedAsset(maps);
+  const synchronous = buildThreeAsset(asset);
+  assert.equal(synchronous.nodes.get("plane").material.map, null, "the compatible synchronous path does not resolve URLs");
+  disposeThreeAsset(synchronous.root);
+  const baseTexture = new THREE.Texture();
+  let resolverCalls = 0;
+  let baseDisposals = 0;
+  baseTexture.addEventListener("dispose", () => { baseDisposals += 1; });
+  const built = await buildThreeAssetAsync(asset, {
+    resolveTexture(definition, context) {
+      resolverCalls += 1;
+      assert.equal(definition.sourceRef, sourceRef);
+      assert.equal(context.asset, asset);
+      assert.equal(context.material, asset.materials[0]);
+      return baseTexture;
+    },
+  });
+  assert.equal(resolverCalls, 1, "one decoded source is shared by every sampler binding");
+  const material = built.nodes.get("plane").material;
+  const hydrated = slots.map((slot) => material[slot]);
+  hydrated.forEach((texture, index) => {
+    const definition = maps[index];
+    assert.ok(texture?.isTexture, definition.slot);
+    assert.notEqual(texture, baseTexture);
+    assert.deepEqual(texture.repeat.toArray(), definition.repeat);
+    assert.deepEqual(texture.offset.toArray(), definition.offset);
+    assert.equal(texture.rotation, definition.rotation);
+    assert.equal(texture.flipY, definition.flipY);
+    assert.equal(texture.wrapS, definition.wrap === "repeat" ? THREE.RepeatWrapping : THREE.ClampToEdgeWrapping);
+    assert.equal(texture.userData.sourceRef, sourceRef);
+    assert.equal(texture.colorSpace, definition.slot === "map" || definition.slot === "emissiveMap" ? THREE.SRGBColorSpace : THREE.NoColorSpace);
+  });
+  assert.equal(new Set(hydrated).size, slots.length, "sampler transforms do not share Texture objects");
+  assert.equal(new Set(hydrated.map((texture) => texture.source)).size, 1, "samplers share the decoded image source");
+  assert.equal(material.transparent, true, "alpha maps enable blending");
+
+  const roundTrip = assetFromObject3DRoots([built.root], asset.name, "fixture:textured-plane");
+  const roundTripMaps = roundTrip.materials.flatMap((candidate) => candidate.maps ?? []);
+  assert.deepEqual(roundTripMaps.map((map) => map.slot), slots);
+  roundTripMaps.forEach((map, index) => {
+    assert.equal(map.sourceRef, sourceRef);
+    assert.equal(map.wrap, maps[index].wrap);
+    assert.deepEqual(map.repeat, maps[index].repeat);
+    assert.deepEqual(map.offset, maps[index].offset);
+    assert.equal(map.rotation, maps[index].rotation);
+    assert.equal(map.flipY, maps[index].flipY);
+  });
+
+  const registry = new SceneAssetRegistry("hydrated-texture-fixture");
+  registry.register({ actorId: asset.id, assetId: asset.id, name: asset.name, category: "Test", sourceRef: "fixture.ts", root: built.root });
+  const liveMaps = registry.toReviewIndex("review").assetCatalog.assets[0].materials.flatMap((candidate) => candidate.maps ?? []);
+  assert.equal(liveMaps.length, slots.length);
+  for (const map of liveMaps) {
+    assert.ok(registry.hasTextureResource(map.resourceId));
+    const resource = await registry.readTextureResource(map.resourceId, 1024);
+    assert.equal(resource.contentType, "image/png");
+  }
+
+  let cloneDisposals = 0;
+  material.map.addEventListener("dispose", () => { cloneDisposals += 1; });
+  disposeThreeAsset(built.root);
+  assert.equal(cloneDisposals, 1);
+  assert.equal(baseDisposals, 0, "the caller retains ownership of resolver cache entries");
+  baseTexture.dispose();
+});
+
+test("texture source policy failures come only from the explicit resolver", async () => {
+  const originalFetch = globalThis.fetch;
+  let fetched = false;
+  globalThis.fetch = () => {
+    fetched = true;
+    throw new Error("Unexpected implicit fetch");
+  };
+  try {
+    for (const [label, map] of [
+      ["missing", { slot: "map" }],
+      ["rejected", { slot: "map", sourceRef: "https://assets.example/rejected.png" }],
+      ["oversized", { slot: "map", sourceRef: "https://assets.example/large.png" }],
+      ["cross-origin", { slot: "map", sourceRef: "https://other.example/texture.png" }],
+    ]) {
+      await assert.rejects(
+        buildThreeAssetAsync(mappedAsset([map]), {
+          resolveTexture() { throw new Error(`${label} texture rejected by policy`); },
+        }),
+        new RegExp(`${label} texture rejected by policy`),
+      );
+    }
+    assert.equal(fetched, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });

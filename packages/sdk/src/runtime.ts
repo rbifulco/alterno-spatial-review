@@ -4,6 +4,7 @@ import type {
   AssetGeometry,
   AssetMaterial,
   AssetNode,
+  AssetTextureMap,
   ReviewAsset3D,
   Vec3,
 } from "@alterno-dev/spatial-review-protocol";
@@ -13,6 +14,26 @@ export type AssetViewMode = "lit" | "unlit" | "wireframe" | "normals" | "xray";
 export type BuiltAsset = {
   root: THREE.Group;
   nodes: Map<string, THREE.Object3D>;
+};
+
+export type ThreeAssetTextureResolverContext = {
+  asset: ReviewAsset3D;
+  material: AssetMaterial;
+};
+
+/** Resolve an approved texture without granting the SDK implicit network access.
+ * The resolver owns the returned base texture. The runtime clones its source so
+ * every material binding can retain independent sampler transforms. */
+export type ThreeAssetTextureResolver = (
+  map: AssetTextureMap,
+  context: ThreeAssetTextureResolverContext,
+) => THREE.Texture | Promise<THREE.Texture>;
+
+export type BuildThreeAssetAsyncOptions = {
+  mode?: AssetViewMode;
+  hiddenNodeIds?: Set<string>;
+  resources?: ThreeAssetResourceCache;
+  resolveTexture: ThreeAssetTextureResolver;
 };
 
 export class ThreeAssetResourceCache {
@@ -50,6 +71,128 @@ export function replaceThreeAssetMaterials(object: THREE.Mesh | THREE.Line | THR
   resources.materials.forEach((lease) => lease.release());
   resources.materials = materials;
   object.material = materials.length === 1 ? materials[0].value : materials.map((lease) => lease.value);
+}
+
+type SupportedTextureSlot = "map" | "normalMap" | "bumpMap" | "roughnessMap" | "metalnessMap" | "aoMap" | "emissiveMap" | "alphaMap";
+type ResolvedTextureMap = { definition: AssetTextureMap; slot: SupportedTextureSlot; texture: THREE.Texture };
+
+const supportedTextureSlots = new Map<string, SupportedTextureSlot>([
+  ["map", "map"],
+  ["normalmap", "normalMap"],
+  ["bumpmap", "bumpMap"],
+  ["roughnessmap", "roughnessMap"],
+  ["metalnessmap", "metalnessMap"],
+  ["aomap", "aoMap"],
+  ["emissivemap", "emissiveMap"],
+  ["alphamap", "alphaMap"],
+]);
+
+function supportedTextureSlot(slot: string) {
+  return supportedTextureSlots.get(slot.toLowerCase().replace(/[^a-z0-9]/g, ""));
+}
+
+function textureSourceKey(map: AssetTextureMap, material: AssetMaterial, index: number) {
+  if (map.resourceId) return `resource:${map.resourceId}`;
+  if (map.sourceRef) return `source:${map.sourceRef}`;
+  return `missing:${material.id}:${index}`;
+}
+
+async function resolveAssetTextureMaps(asset: ReviewAsset3D, resolveTexture: ThreeAssetTextureResolver) {
+  const pending = new Map<string, Promise<THREE.Texture>>();
+  const result = new Map<AssetMaterial, ResolvedTextureMap[]>();
+  await Promise.all(asset.materials.map(async (material) => {
+    const seen = new Set<SupportedTextureSlot>();
+    const maps = await Promise.all((material.maps ?? []).map(async (definition, index): Promise<ResolvedTextureMap | undefined> => {
+      const slot = supportedTextureSlot(definition.slot);
+      if (!slot || seen.has(slot)) return undefined;
+      seen.add(slot);
+      const key = textureSourceKey(definition, material, index);
+      let resolution = pending.get(key);
+      if (!resolution) {
+        resolution = Promise.resolve(resolveTexture(definition, { asset, material })).then((texture) => {
+          if (!texture?.isTexture) throw new Error(`The texture resolver returned no Three.js texture for ${material.name} / ${slot}.`);
+          return texture;
+        });
+        pending.set(key, resolution);
+      }
+      return { definition, slot, texture: await resolution };
+    }));
+    const supported = maps.filter((value): value is ResolvedTextureMap => Boolean(value));
+    if (supported.length) result.set(material, supported);
+  }));
+  return result;
+}
+
+function materialWithTextureMaps(material: THREE.Material, maps: ResolvedTextureMap[]) {
+  const applicable = maps.filter(({ slot }) => slot in material);
+  if (!applicable.length) return undefined;
+  const hydrated = material.clone();
+  const ownedTextures: THREE.Texture[] = [];
+  applicable.forEach(({ definition, slot, texture: baseTexture }) => {
+    const texture = baseTexture.clone();
+    texture.name = definition.name ?? baseTexture.name;
+    texture.userData = {
+      ...baseTexture.userData,
+      ...texture.userData,
+      sourceRef: definition.sourceRef,
+      resourceId: definition.resourceId,
+    };
+    texture.colorSpace = slot === "map" || slot === "emissiveMap" ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+    texture.wrapS = definition.wrap === "repeat" ? THREE.RepeatWrapping : THREE.ClampToEdgeWrapping;
+    texture.wrapT = definition.wrap === "repeat" ? THREE.RepeatWrapping : THREE.ClampToEdgeWrapping;
+    texture.repeat.fromArray(definition.repeat ?? [1, 1]);
+    texture.offset.fromArray(definition.offset ?? [0, 0]);
+    texture.rotation = definition.rotation ?? 0;
+    texture.flipY = definition.flipY ?? true;
+    texture.needsUpdate = true;
+    (hydrated as unknown as Record<SupportedTextureSlot, THREE.Texture | null>)[slot] = texture;
+    ownedTextures.push(texture);
+  });
+  if (applicable.some(({ slot }) => slot === "alphaMap")) hydrated.transparent = true;
+  hydrated.needsUpdate = true;
+  let disposed = false;
+  hydrated.addEventListener("dispose", () => {
+    if (disposed) return;
+    disposed = true;
+    ownedTextures.forEach((texture) => texture.dispose());
+  });
+  return hydrated;
+}
+
+/** Attach explicitly resolved textures to an existing SDK-built hierarchy.
+ * All resolutions complete before its shared material leases are replaced. */
+export async function hydrateThreeAssetTextures(
+  asset: ReviewAsset3D,
+  built: BuiltAsset,
+  resolveTexture: ThreeAssetTextureResolver,
+) {
+  const resolved = await resolveAssetTextureMaps(asset, resolveTexture);
+  const hydratedMaterials = new ResourceCache<THREE.Material>();
+  const replacements: Array<{ object: THREE.Mesh | THREE.Line | THREE.Points; materials: ResourceLease<THREE.Material>[] }> = [];
+  try {
+    asset.nodes.forEach((node) => {
+      const object = built.nodes.get(node.id) as THREE.Mesh | THREE.Line | THREE.Points | undefined;
+      const current = object && objectResources.get(object);
+      if (!object || !current || !("material" in object)) return;
+      const definitions = node.type === "line" || node.type === "points"
+        ? [materialsForNodes(asset).get(node.materialIds[0])]
+        : node.materialIds.length
+          ? node.materialIds.map((id) => materialsForNodes(asset).get(id))
+          : [undefined];
+      const materials = current.materials.map((lease, index) => {
+        const definition = definitions[index];
+        const maps = definition ? resolved.get(definition) : undefined;
+        if (!definition || !maps?.some(({ slot }) => slot in lease.value)) return lease.retain();
+        return hydratedMaterials.acquire(lease.value, definition.id, () => materialWithTextureMaps(lease.value, maps)!);
+      });
+      replacements.push({ object, materials });
+    });
+  } catch (error) {
+    replacements.forEach((replacement) => replacement.materials.forEach((lease) => lease.release()));
+    throw error;
+  }
+  replacements.forEach(({ object, materials }) => replaceThreeAssetMaterials(object, materials));
+  return built;
 }
 
 export function makeAssetGeometry(geometry: AssetGeometry) {
@@ -178,6 +321,23 @@ export function buildThreeAsset(asset: ReviewAsset3D, mode: AssetViewMode = "lit
   });
   root.updateMatrixWorld(true);
   return { root, nodes };
+}
+
+/** Build a hierarchy and hydrate its supported material maps through an
+ * explicit caller-owned resolver. This function never fetches URLs itself. */
+export async function buildThreeAssetAsync(asset: ReviewAsset3D, options: BuildThreeAssetAsyncOptions) {
+  const built = buildThreeAsset(
+    asset,
+    options.mode ?? "lit",
+    options.hiddenNodeIds ?? new Set<string>(),
+    options.resources ?? sharedResources,
+  );
+  try {
+    return await hydrateThreeAssetTextures(asset, built, options.resolveTexture);
+  } catch (error) {
+    disposeThreeAsset(built.root);
+    throw error;
+  }
 }
 
 const disposedObjects = new WeakSet<THREE.Object3D>();
