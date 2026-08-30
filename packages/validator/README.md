@@ -2,6 +2,11 @@
 
 Small dependency-free validators for untrusted Spatial Review documents.
 
+Use `validateSceneDocument` and `validateAssetDocument` for advertised static
+documents. They validate required render structure, references, hierarchy,
+finite transforms and geometry, and aggregate safety limits. Use
+`validateReviewIndex` for a combined live catalog.
+
 Deferred live-transfer validation is split by trust boundary:
 `validateAssetStreamDescriptor`, `validateSpatialReviewAssetStreamOffer`,
 `validateSpatialReviewAssetRequest`,

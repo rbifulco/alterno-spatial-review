@@ -21,6 +21,20 @@ unavailable response (network failure or non-success HTTP status) from an invali
 JSON or protocol document. Relative discovery fields resolve from the final URL
 of the successful same-origin response.
 
+Static scene and asset documents must use the website origin by default, and
+every redirect is checked before it is followed. This keeps validation of a
+public website from reaching unrelated internal or local services. If a site
+intentionally publishes static data from a CDN, opt in to that exact origin:
+
+```bash
+npx @alterno-dev/spatial-review-cli validate https://project.example \
+  --allow-origin https://assets.example
+```
+
+`--allow-origin` may be repeated. Local development remains supported: documents
+on the same localhost origin work without a flag; a different local port needs
+an explicit opt-in.
+
 After successful validation, the CLI prints a deep link to the official hosted
 editor at `https://spatial-review.alterno.dev`. Opening that link still requires
 the website's SDK bridge to authorize the official editor origin, or the static

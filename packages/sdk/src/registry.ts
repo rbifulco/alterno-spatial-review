@@ -58,6 +58,11 @@ export type NavigationSequenceRegistration = NavigationSequence & { order?: numb
 type CachedAsset = { revision: string; asset: ReviewAsset3D };
 type AnySceneAssetRegistration = SceneAssetRegistration | DeferredSceneAssetRegistration;
 type TextureResourceEntry = { texture: THREE.Texture; owners: Set<string> };
+type DeferredRepresentationCacheEntry = {
+  registration: DeferredSceneAssetRegistration;
+  assetId: string;
+  asset: ReviewAsset3D;
+};
 
 const statusPhaseOrder = new Map<SpatialReviewSourceStatusMessage["phase"], number>([
   ["booting", 0],
@@ -120,6 +125,7 @@ export class SceneAssetRegistry {
   private textureResources = new Map<string, TextureResourceEntry>();
   private textureResourceOwners = new Map<string, Set<string>>();
   private textureResourceOwnerAssets = new Map<string, string>();
+  private deferredRepresentationCache = new Map<string, DeferredRepresentationCacheEntry>();
   private catalogVersion = 0;
   private sourceStatus: SpatialReviewSourceStatusMessage;
   private sourceStatusListeners = new Set<(status: SpatialReviewSourceStatusMessage) => void>();
@@ -211,8 +217,12 @@ export class SceneAssetRegistry {
     this.sourceStatusListeners.forEach((listener) => listener(structuredClone(this.sourceStatus)));
     const affected = new Set(assetIds);
     this.assetCache.forEach((entry, key) => { if (affected.has(entry.asset.id)) this.assetCache.delete(key); });
+    this.deferredRepresentationCache.forEach((entry, key) => { if (affected.has(entry.assetId)) this.deferredRepresentationCache.delete(key); });
     this.textureResourceOwnerAssets.forEach((assetId, owner) => { if (affected.has(assetId)) this.releaseTextureResourceOwner(owner); });
-    if (!this.registrations.size && !this.deferredRegistrations.size) this.clearTextureResources();
+    if (!this.registrations.size && !this.deferredRegistrations.size) {
+      this.deferredRepresentationCache.clear();
+      this.clearTextureResources();
+    }
   }
   registerNavigationSequence(registration: NavigationSequenceRegistration) {
     if (!registration.id.trim()) throw new Error("Navigation sequence id cannot be empty.");
@@ -352,16 +362,33 @@ export class SceneAssetRegistry {
     if (signal.aborted) throw new DOMException("Asset representation request was cancelled.", "AbortError");
     let asset: ReviewAsset3D;
     if (isDeferred(entry)) {
+      // A representation revision is immutable. Reusing its first completed
+      // snapshot keeps response resource IDs stable across concurrent peers.
+      const cacheKey = JSON.stringify([profile, entry.assetId, representation.id, representation.revision]);
+      const cached = this.deferredRepresentationCache.get(cacheKey);
+      if (cached?.registration === entry) return { asset: structuredClone(cached.asset), representation };
       const produced = await entry.produceRepresentation({ assetId, profile, representation: structuredClone(representation), maxBytes, priority, signal, reportProgress });
       if (signal.aborted) throw new DOMException("Asset representation request was cancelled.", "AbortError");
+
+      // Rebuild the catalog map before accepting an async completion. An
+      // unregister or replacement must make the old producer result stale.
+      this.ordered();
+      if (this.assets.get(assetId) !== entry) throw new Error("Asset representation request was superseded by a catalog change.");
+      const completed = this.deferredRepresentationCache.get(cacheKey);
+      if (completed?.registration === entry) return { asset: structuredClone(completed.asset), representation };
+
       if (produced instanceof THREE.Object3D || Array.isArray(produced)) {
         const roots = produced instanceof THREE.Object3D ? [produced] : produced;
         if (!roots.length || roots.some((root) => !(root instanceof THREE.Object3D))) throw new Error("The deferred asset producer returned invalid Three.js roots.");
         const resources = new Map<string, THREE.Texture>();
         asset = assetFromObject3DRoots(roots, entry.name, entry.sourceRef, { assetId: entry.assetId, category: entry.category, tags: [...(entry.tags ?? []), "registered", profile], profile, geometryEncoding: "typed", onTexture: (resourceId, texture) => resources.set(resourceId, texture) });
-        this.replaceTextureResources(`deferred:${profile}:${entry.assetId}:${representation.id}`, entry.assetId, resources);
+        this.replaceTextureResources(`deferred:${cacheKey}`, entry.assetId, resources);
       } else asset = produced;
       if (asset.id !== entry.assetId) throw new Error(`Deferred asset producer returned "${asset.id}" for requested asset "${entry.assetId}".`);
+      asset = structuredClone(asset);
+      asset.stream = stream;
+      this.deferredRepresentationCache.set(cacheKey, { registration: entry, assetId: entry.assetId, asset });
+      return { asset: structuredClone(asset), representation };
     } else {
       if (this.estimateBytes(entry, profile, 4).bytes > maxBytes) throw new RangeError("The requested representation exceeds the negotiated geometry byte budget.");
       asset = this.asset(entry, profile, true);

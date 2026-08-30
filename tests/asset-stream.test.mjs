@@ -40,6 +40,64 @@ test("deferred registrations publish bounds and representations before creating 
   assert.throws(() => registry.setSourceStatus({ phase: "booting" }), /backwards/);
 });
 
+test("deferred completions cannot revive an unregistered asset or its texture resources", async () => {
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const texture = new THREE.Texture();
+  const root = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial({ map: texture }));
+  const registry = new SceneAssetRegistry("deferred-unregister-r1");
+  registry.registerDeferred(deferredRegistration(async () => { await gate; return root; }));
+
+  const pending = registry.produceAssetRepresentation(
+    "deferred-city", "review", "detail", 256_000, "visible", new AbortController().signal,
+  );
+  assert.equal(registry.unregister("deferred-city-placement"), true);
+  release();
+  await assert.rejects(pending, /superseded by a catalog change/);
+  assert.equal(registry.hasTextureResource(`three-texture:${texture.uuid}`), false);
+
+  root.geometry.dispose();
+  root.material.dispose();
+  texture.dispose();
+});
+
+test("concurrent requests share the first immutable representation snapshot", async () => {
+  const releases = [];
+  const gates = Array.from({ length: 2 }, () => new Promise((resolve) => { releases.push(resolve); }));
+  const textures = [new THREE.Texture(), new THREE.Texture()];
+  const roots = textures.map((texture) => new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial({ map: texture })));
+  let calls = 0;
+  const registry = new SceneAssetRegistry("deferred-concurrent-r1");
+  registry.registerDeferred(deferredRegistration(async () => {
+    const call = calls;
+    calls += 1;
+    await gates[call];
+    return roots[call];
+  }));
+
+  const firstPending = registry.produceAssetRepresentation(
+    "deferred-city", "review", "detail", 256_000, "visible", new AbortController().signal,
+  );
+  const secondPending = registry.produceAssetRepresentation(
+    "deferred-city", "review", "detail", 256_000, "visible", new AbortController().signal,
+  );
+  assert.equal(calls, 2);
+
+  releases[0]();
+  const first = await firstPending;
+  const firstResourceId = first.asset.materials[0].maps[0].resourceId;
+  assert.equal(registry.hasTextureResource(firstResourceId), true);
+
+  releases[1]();
+  const second = await secondPending;
+  assert.equal(second.asset.materials[0].maps[0].resourceId, firstResourceId);
+  assert.equal(registry.hasTextureResource(firstResourceId), true);
+  assert.equal(registry.hasTextureResource(`three-texture:${textures[1].uuid}`), false);
+
+  roots.forEach((root) => { root.geometry.dispose(); root.material.dispose(); });
+  textures.forEach((texture) => texture.dispose());
+});
+
 test("typed instance transfers are exact, owned, renderable, and mutually exclusive", () => {
   const source = streamedAsset("instances", 32);
   const prepared = prepareAssetTransfer(source, 64 * 1024, { typedInstances: true });
@@ -271,11 +329,17 @@ test("unnegotiated peers keep the progressive geometry fallback", async () => {
 test("bridge bounds its queue and starts interactive work before background work", async () => {
   const registry = new SceneAssetRegistry("stream-priority-r1");
   const starts = []; const releases = [];
-  registry.registerDeferred(deferredRegistration(async (context) => {
-    starts.push(context.priority);
-    await new Promise((resolve) => releases.push(resolve));
-    return streamedAsset(context.assetId, 1);
-  }, 4_096));
+  for (const suffix of ["first", "background", "interactive", "overflow"]) {
+    registry.registerDeferred({
+      ...deferredRegistration(async (context) => {
+        starts.push(context.priority);
+        await new Promise((resolve) => releases.push(resolve));
+        return streamedAsset(context.assetId, 1);
+      }, 4_096),
+      actorId: `${suffix}-placement`,
+      assetId: `${suffix}-asset`,
+    });
+  }
   const received = []; let listener;
   const editor = { postMessage(message) { received.push(message); } };
   const originalWindow = globalThis.window;
@@ -286,7 +350,7 @@ test("bridge bounds its queue and starts interactive work before background work
     const send = (data) => listener({ origin: "https://editor.example", source: editor, data });
     send({ type: SPATIAL_REVIEW_REQUEST, requestId: "catalog-priority", profile: "review", capabilities: [SPATIAL_REVIEW_ASSET_STREAM_CAPABILITY], progressive: true, geometryTransfer: { capability: "geometry-transfer-v1", maxBytes: 16_000 } });
     await wait();
-    const request = (requestId, priority) => ({ type: SPATIAL_REVIEW_ASSET_REQUEST, requestId, buildId: registry.buildId, assetId: "deferred-city", profile: "review",
+    const request = (requestId, priority) => ({ type: SPATIAL_REVIEW_ASSET_REQUEST, requestId, buildId: registry.buildId, assetId: `${requestId}-asset`, profile: "review",
       stream: { capability: SPATIAL_REVIEW_ASSET_STREAM_CAPABILITY, representationId: "detail", maxBytes: 8_000, priority } });
     send(request("first", "visible"));
     send(request("background", "background"));

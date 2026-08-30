@@ -3,10 +3,12 @@ import {
   spatialReviewEditorUrl,
   type SpatialReviewDiscovery,
 } from "@alterno-dev/spatial-review-protocol";
-import { validateAssetDocument, validateDiscovery } from "@alterno-dev/spatial-review-validator";
+import { validateAssetDocument, validateDiscovery, validateSceneDocument } from "@alterno-dev/spatial-review-validator";
 
 const DISCOVERY_LIMIT_BYTES = 64 * 1024;
 const DOCUMENT_LIMIT_BYTES = 24 * 1024 * 1024;
+const MAX_REDIRECTS = 5;
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 
 export type DiscoveryAttempt = {
   url: string;
@@ -22,8 +24,12 @@ export type ResolvedWebsiteDiscovery = {
 
 export type ValidateWebsiteOptions = {
   discoveryUrl?: string;
+  /** Extra static-document origins trusted by this CLI invocation. */
+  allowedDocumentOrigins?: readonly string[];
   fetch?: typeof fetch;
 };
+
+class UrlPolicyError extends Error {}
 
 async function readLimitedJson(response: Response, limit: number, label: string) {
   const declared = Number(response.headers.get("content-length"));
@@ -64,29 +70,63 @@ function actualResponseUrl(response: Response, requestedUrl: string) {
   return actual.href;
 }
 
+function normalizedOrigin(value: string, label: string) {
+  const url = new URL(value);
+  if (url.protocol !== "http:" && url.protocol !== "https:") throw new UrlPolicyError(`${label} must use HTTP(S).`);
+  if (url.username || url.password) throw new UrlPolicyError(`${label} must not contain credentials.`);
+  if (url.pathname !== "/" || url.search || url.hash) throw new UrlPolicyError(`${label} must be an origin without a path, query, or fragment.`);
+  return url.origin;
+}
+
+function assertTrustedUrl(value: string, trustedOrigins: ReadonlySet<string>, label: string) {
+  const url = new URL(value);
+  if (url.protocol !== "http:" && url.protocol !== "https:") throw new UrlPolicyError(`${label} must use HTTP(S).`);
+  if (url.username || url.password) throw new UrlPolicyError(`${label} must not contain credentials.`);
+  if (!trustedOrigins.has(url.origin)) throw new UrlPolicyError(`${label} origin ${url.origin} is not trusted; pass --allow-origin ${url.origin} to opt in.`);
+  url.hash = "";
+  return url.href;
+}
+
+async function fetchWithRedirectPolicy(url: string, fetcher: typeof fetch, trustedOrigins: ReadonlySet<string>, label: string) {
+  let current = assertTrustedUrl(url, trustedOrigins, label);
+  for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects += 1) {
+    const response = await fetcher(current, { headers: { accept: "application/json" }, redirect: "manual" });
+    if (!REDIRECT_STATUSES.has(response.status)) {
+      const actualUrl = actualResponseUrl(response, current);
+      assertTrustedUrl(actualUrl, trustedOrigins, label);
+      return { response, actualUrl };
+    }
+    if (redirects === MAX_REDIRECTS) throw new UrlPolicyError(`${label} exceeded the ${MAX_REDIRECTS}-redirect limit.`);
+    const location = response.headers.get("location");
+    if (!location) throw new UrlPolicyError(`${label} returned a redirect without a Location header.`);
+    current = assertTrustedUrl(new URL(location, current).href, trustedOrigins, `${label} redirect`);
+  }
+  throw new UrlPolicyError(`${label} exceeded the redirect limit.`);
+}
+
 export async function resolveWebsiteDiscovery(
   websiteUrl: string,
   options: ValidateWebsiteOptions = {},
 ): Promise<ResolvedWebsiteDiscovery> {
   const fetcher = options.fetch ?? fetch;
   const candidates = discoveryUrlsForWebsite(websiteUrl, options.discoveryUrl);
+  const websiteOrigin = new URL(websiteUrl).origin;
   const attempts: DiscoveryAttempt[] = [];
   for (const candidate of candidates) {
     let response: Response;
+    let actualUrl: string;
     try {
-      response = await fetcher(candidate, { headers: { accept: "application/json" }, redirect: "follow" });
+      ({ response, actualUrl } = await fetchWithRedirectPolicy(candidate, fetcher, new Set([new URL(candidate).origin]), "Spatial Review discovery document"));
     } catch (error) {
-      attempts.push({ url: candidate, outcome: "unavailable", message: error instanceof Error ? error.message : "network request failed" });
+      attempts.push({ url: candidate, outcome: error instanceof UrlPolicyError ? "invalid" : "unavailable", message: error instanceof Error ? error.message : "network request failed" });
       continue;
     }
     if (!response.ok) {
       attempts.push({ url: candidate, outcome: "unavailable", message: `HTTP ${response.status}` });
       continue;
     }
-    let actualUrl: string;
     let payload: unknown;
     try {
-      actualUrl = actualResponseUrl(response, candidate);
       payload = await readLimitedJson(response, DISCOVERY_LIMIT_BYTES, "Spatial Review discovery document");
     } catch (error) {
       attempts.push({ url: candidate, outcome: "invalid", message: error instanceof Error ? error.message : "invalid response" });
@@ -95,6 +135,10 @@ export async function resolveWebsiteDiscovery(
     const result = validateDiscovery(payload, actualUrl);
     if (!result.ok) {
       attempts.push({ url: candidate, outcome: "invalid", message: result.errors.join("; ") });
+      continue;
+    }
+    if (new URL(result.value.websiteUrl).origin !== websiteOrigin) {
+      attempts.push({ url: candidate, outcome: "invalid", message: `websiteUrl must remain on ${websiteOrigin}` });
       continue;
     }
     attempts.push({ url: candidate, outcome: "compatible", message: actualUrl === candidate ? "valid discovery document" : `valid at ${actualUrl}` });
@@ -106,8 +150,8 @@ export async function resolveWebsiteDiscovery(
   ].join("\n"));
 }
 
-async function fetchDocument(url: string, label: string, fetcher: typeof fetch) {
-  const response = await fetcher(url, { headers: { accept: "application/json" }, redirect: "follow" });
+async function fetchDocument(url: string, label: string, fetcher: typeof fetch, trustedOrigins: ReadonlySet<string>) {
+  const { response } = await fetchWithRedirectPolicy(url, fetcher, trustedOrigins, label);
   if (!response.ok) throw new Error(`${label} ${url} returned ${response.status}.`);
   return readLimitedJson(response, DOCUMENT_LIMIT_BYTES, label);
 }
@@ -116,10 +160,22 @@ export async function validateWebsite(websiteUrl: string, options: ValidateWebsi
   const fetcher = options.fetch ?? fetch;
   const resolved = await resolveWebsiteDiscovery(websiteUrl, { ...options, fetch: fetcher });
   const { discovery } = resolved;
-  if (discovery.scene) await fetchDocument(discovery.scene, "Scene document", fetcher);
+  const trustedOrigins = new Set([new URL(resolved.discoveryUrl).origin]);
+  for (const origin of options.allowedDocumentOrigins ?? []) trustedOrigins.add(normalizedOrigin(origin, "Allowed document origin"));
+  let sceneAssetIds: string[] | undefined;
+  if (discovery.scene) {
+    const scene = validateSceneDocument(await fetchDocument(discovery.scene, "Scene document", fetcher, trustedOrigins));
+    if (!scene.ok) throw new Error(scene.errors.join("\n"));
+    sceneAssetIds = scene.value.actors.map((actor) => actor.assetId);
+  }
   if (discovery.assets) {
-    const assets = validateAssetDocument(await fetchDocument(discovery.assets, "Asset document", fetcher));
+    const assets = validateAssetDocument(await fetchDocument(discovery.assets, "Asset document", fetcher, trustedOrigins));
     if (!assets.ok) throw new Error(assets.errors.join("\n"));
+    if (sceneAssetIds) {
+      const assetIds = new Set(assets.value.assets.map((asset) => asset.id));
+      const missing = [...new Set(sceneAssetIds.filter((assetId) => !assetIds.has(assetId)))];
+      if (missing.length) throw new Error(`Scene actors reference assets missing from the advertised catalog: ${missing.join(", ")}.`);
+    }
   }
   return [
     `Compatible: ${discovery.name}`,
