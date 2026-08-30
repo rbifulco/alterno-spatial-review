@@ -16,6 +16,38 @@ before using this unreleased extension.
 The browser discovery request/response messages let an embedded website
 advertise its normalized discovery document without CORS or an editor backend.
 
+## Discovery locators
+
+`discoveryUrlForWebsite(websiteUrl)` remains the compatibility helper for the
+canonical origin-root document:
+
+```text
+https://example.com/.well-known/spatial-review.json
+```
+
+Use `discoveryUrlsForWebsite(websiteUrl, explicitDiscoveryUrl?)` when connecting
+to a deployed project. It returns de-duplicated candidates in this order:
+
+1. an explicitly supplied, same-origin HTTP(S) locator;
+2. the canonical origin-root document;
+3. `.well-known/spatial-review.json` below the website's project path.
+
+Query strings and fragments on the website URL do not become part of the
+project locator. A fragment on an explicit locator is removed. Cross-origin
+locators, embedded credentials, and non-HTTP(S) URLs are rejected before any
+request is made.
+
+After a candidate succeeds, pass that response's actual URL to
+`normalizeSpatialReviewDiscovery()`. Relative `websiteUrl`, `scene`, `assets`,
+and `liveCapture` fields are resolved from the successful document, including
+after a same-origin redirect. This supports project hosting such as
+`https://owner.github.io/project/` without changing existing root-hosted
+producers.
+
+`spatialReviewEditorUrl()` accepts `{ workspace, discoveryUrl }` to carry an
+explicit locator into the hosted editor. The prior workspace-string argument
+continues to work.
+
 The live browser protocol includes an optional `resource-transfer-v1`
 capability. Texture map descriptors carry resource IDs, and request/response
 messages move encoded image bytes with transferable `ArrayBuffer` values. Both

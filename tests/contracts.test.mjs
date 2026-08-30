@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import * as THREE from "three";
 import { SceneAssetRegistry, assetFromObject3DRoots, attachSceneAssetRegistryBridge, attachSpatialReviewDiscoveryBridge, buildThreeAsset, buildThreeAssetAsync, disposeThreeAsset } from "../packages/sdk/dist/index.js";
-import { OFFICIAL_SPATIAL_REVIEW_EDITOR_ORIGIN, SPATIAL_REVIEW_CATALOG, SPATIAL_REVIEW_DISCOVERY_REQUEST, SPATIAL_REVIEW_DISCOVERY_RESPONSE, SPATIAL_REVIEW_INDEX_SCHEMA, SPATIAL_REVIEW_REQUEST, SPATIAL_REVIEW_RESOURCE_REQUEST, SPATIAL_REVIEW_RESOURCE_RESPONSE, SPATIAL_REVIEW_RESOURCE_TRANSFER_CAPABILITY, discoveryUrlForWebsite, normalizeSpatialReviewDiscovery, spatialReviewEditorUrl } from "../packages/protocol/dist/index.js";
+import { OFFICIAL_SPATIAL_REVIEW_EDITOR_ORIGIN, SPATIAL_REVIEW_CATALOG, SPATIAL_REVIEW_DISCOVERY_REQUEST, SPATIAL_REVIEW_DISCOVERY_RESPONSE, SPATIAL_REVIEW_INDEX_SCHEMA, SPATIAL_REVIEW_REQUEST, SPATIAL_REVIEW_RESOURCE_REQUEST, SPATIAL_REVIEW_RESOURCE_RESPONSE, SPATIAL_REVIEW_RESOURCE_TRANSFER_CAPABILITY, discoveryUrlForWebsite, discoveryUrlsForWebsite, normalizeSpatialReviewDiscovery, spatialReviewEditorUrl } from "../packages/protocol/dist/index.js";
 import { validateAssetDocument, validateReviewIndex } from "../packages/validator/dist/index.js";
 
 test("normalizes discovery URLs", () => {
@@ -10,6 +11,42 @@ test("normalizes discovery URLs", () => {
   assert.equal(url, "https://example.com/.well-known/spatial-review.json");
   const discovery = normalizeSpatialReviewDiscovery({ schema: "spatial-review-discovery/v1", version: 1, name: "Fixture", assets: "../assets.json" }, "https://example.com/.well-known/spatial-review.json");
   assert.equal(discovery.assets, "https://example.com/assets.json");
+});
+
+test("orders canonical, project-relative and explicit discovery locators", () => {
+  assert.deepEqual(discoveryUrlsForWebsite("https://owner.github.io/"), [
+    "https://owner.github.io/.well-known/spatial-review.json",
+  ]);
+  assert.deepEqual(discoveryUrlsForWebsite("https://owner.github.io/project?preview=1#section"), [
+    "https://owner.github.io/.well-known/spatial-review.json",
+    "https://owner.github.io/project/.well-known/spatial-review.json",
+  ]);
+  assert.deepEqual(discoveryUrlsForWebsite("https://owner.github.io/project/", ".well-known/custom.json?revision=2#ignored"), [
+    "https://owner.github.io/project/.well-known/custom.json?revision=2",
+    "https://owner.github.io/.well-known/spatial-review.json",
+    "https://owner.github.io/project/.well-known/spatial-review.json",
+  ]);
+  assert.deepEqual(discoveryUrlsForWebsite("https://owner.github.io/project/", "/.well-known/spatial-review.json"), [
+    "https://owner.github.io/.well-known/spatial-review.json",
+    "https://owner.github.io/project/.well-known/spatial-review.json",
+  ]);
+  assert.equal(discoveryUrlForWebsite("https://owner.github.io/project/"), "https://owner.github.io/.well-known/spatial-review.json");
+});
+
+test("rejects unsafe discovery locators", () => {
+  assert.throws(() => discoveryUrlsForWebsite("ftp://owner.github.io/project/"), /HTTP or HTTPS/);
+  assert.throws(() => discoveryUrlsForWebsite("https://user:secret@owner.github.io/project/"), /credentials/);
+  assert.throws(() => discoveryUrlsForWebsite("https://owner.github.io/project/", "https://cdn.example/manifest.json"), /website origin/);
+  assert.throws(() => discoveryUrlsForWebsite("https://owner.github.io/project/", "data:application/json,{}"), /HTTP or HTTPS/);
+  assert.throws(() => discoveryUrlsForWebsite("https://owner.github.io/project/", ""), /valid URL/);
+});
+
+test("normalizes a GitHub Pages project fixture against its successful document", async () => {
+  const payload = JSON.parse(await readFile(new URL("./fixtures/github-pages-project/.well-known/spatial-review.json", import.meta.url), "utf8"));
+  const discoveryUrl = "https://owner.github.io/project/.well-known/spatial-review.json";
+  const discovery = normalizeSpatialReviewDiscovery(payload, discoveryUrl);
+  assert.equal(discovery.websiteUrl, "https://owner.github.io/project/");
+  assert.equal(discovery.liveCapture, "https://owner.github.io/project/?spatial-review-capture=1");
 });
 
 test("builds official editor deep links", () => {
@@ -20,6 +57,13 @@ test("builds official editor deep links", () => {
   assert.equal(
     spatialReviewEditorUrl("https://project.example/path", "assets"),
     "https://spatial-review.alterno.dev/asset-editor?site=https%3A%2F%2Fproject.example%2Fpath",
+  );
+  assert.equal(
+    spatialReviewEditorUrl("https://owner.github.io/project/", {
+      workspace: "scene",
+      discoveryUrl: "https://owner.github.io/project/.well-known/spatial-review.json#ignored",
+    }),
+    "https://spatial-review.alterno.dev/editor?site=https%3A%2F%2Fowner.github.io%2Fproject%2F&discovery=https%3A%2F%2Fowner.github.io%2Fproject%2F.well-known%2Fspatial-review.json",
   );
 });
 
@@ -133,6 +177,18 @@ test("discovers a live capture through the origin-checked browser bridge", () =>
     listener({ origin: "https://untrusted.example", source: editor, data: { type: SPATIAL_REVIEW_DISCOVERY_REQUEST, requestId: "discovery-2" } });
     assert.equal(received.length, 1);
     detach();
+
+    received.length = 0;
+    const detachExplicit = attachSpatialReviewDiscoveryBridge({
+      name: "Fixture",
+      websiteUrl: "https://site.example/project/",
+      discoveryUrl: "https://site.example/project/.well-known/spatial-review.json#ignored",
+      liveCapture: "/capture",
+    }, { allowOfficialEditor: false, allowedOrigins: ["https://editor.example"] });
+    listener({ origin: "https://editor.example", source: editor, data: { type: SPATIAL_REVIEW_DISCOVERY_REQUEST, requestId: "discovery-3" } });
+    assert.equal(received[0].message.discoveryUrl, "https://site.example/project/.well-known/spatial-review.json");
+    assert.equal("discoveryUrl" in received[0].message.discovery, false);
+    detachExplicit();
   } finally {
     globalThis.window = originalWindow;
   }

@@ -61,6 +61,26 @@ Content Security Policy or `X-Frame-Options` headers.
 website's live-capture URL through an embedded landing page. A direct CORS fetch
 of `/.well-known/spatial-review.json` is optional rather than required.
 
+For a project-path or custom static manifest, set `discoveryUrl` on the bridge
+registration. It must be an HTTP(S), credential-free URL on the website origin;
+relative values resolve below the normalized website project path. The bridge
+returns this locator alongside its message, but it never inserts it into the
+discovery document itself:
+
+```ts
+attachSpatialReviewDiscoveryBridge({
+  name: "GitHub Pages project",
+  websiteUrl: "https://owner.github.io/project/",
+  discoveryUrl: ".well-known/spatial-review.json",
+  liveCapture: "../?spatial-review-capture=1",
+});
+```
+
+Editors first try an explicit locator, the canonical origin-root locator, and
+the project-relative locator in order. They use this browser bridge only after
+those static candidates fail. Existing root-only integrations and registrations
+without `discoveryUrl` retain their previous behavior.
+
 Registered texture maps receive session resource IDs. Compatible editors can
 request their bytes over the origin-checked browser bridge, so integrated
 websites do not need to expose texture CORS headers. Direct URL loading remains

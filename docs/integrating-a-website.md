@@ -95,11 +95,41 @@ import { spatialReviewEditorUrl } from "@alterno-dev/spatial-review";
 const reviewUrl = spatialReviewEditorUrl("https://project.example");
 ```
 
-Optionally publish `/.well-known/spatial-review.json` with at least one of
-`scene`, `assets`, or `liveCapture` for CLI validation and non-browser tools.
-IDs must remain stable between builds. For runtime or cloned textures, assign
-their original URL to `texture.userData.sourceRef` when the texture itself no
-longer retains it.
+Optionally publish a discovery document with at least one of `scene`, `assets`,
+or `liveCapture` for CLI validation and non-browser tools. The canonical
+location is `/.well-known/spatial-review.json`. A project hosted below an origin,
+such as GitHub Pages, may instead publish the document below its project path:
+
+```text
+https://owner.github.io/project/.well-known/spatial-review.json
+```
+
+The editor and CLI try the canonical origin-root location before the
+project-relative location. Supply an explicit same-origin locator when the
+document lives elsewhere:
+
+```ts
+const reviewUrl = spatialReviewEditorUrl("https://owner.github.io/project/", {
+  discoveryUrl: "https://owner.github.io/project/review-manifest.json",
+});
+
+attachSpatialReviewDiscoveryBridge({
+  name: "My spatial project",
+  websiteUrl: "https://owner.github.io/project/",
+  discoveryUrl: "/project/review-manifest.json",
+  liveCapture: "/project/?spatial-review-capture=1",
+});
+```
+
+The bridge's `discoveryUrl` is locator metadata and is not added to the
+discovery JSON. Static discovery responses must allow CORS for the editor or CLI.
+The editor falls back to the origin-checked browser bridge only after all static
+candidates fail, so client-only integrations remain supported.
+
+Resolve relative fields from the discovery document's final response URL, not
+from the entered website URL. Keep redirects on the same origin. IDs must remain
+stable between builds. For runtime or cloned textures, assign their original URL
+to `texture.userData.sourceRef` when the texture itself no longer retains it.
 
 The discovery bridge makes the live path fully client-only: the editor embeds
 the supplied website URL and requests this metadata with `postMessage`. The

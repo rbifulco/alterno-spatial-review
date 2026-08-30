@@ -1,9 +1,9 @@
 import {
-  SPATIAL_REVIEW_DISCOVERY_PATH,
   SPATIAL_REVIEW_DISCOVERY_REQUEST,
   SPATIAL_REVIEW_DISCOVERY_RESPONSE,
   SPATIAL_REVIEW_DISCOVERY_SCHEMA,
   OFFICIAL_SPATIAL_REVIEW_EDITOR_ORIGIN,
+  discoveryUrlsForWebsite,
   normalizeSpatialReviewDiscovery,
   type SpatialReviewDiscovery,
   type SpatialReviewDiscoveryRequestMessage,
@@ -13,6 +13,8 @@ import {
 export type SpatialReviewDiscoveryRegistration = {
   name: string;
   websiteUrl?: string;
+  /** Locator metadata returned by the bridge; never copied into discovery JSON. */
+  discoveryUrl?: string;
   scene?: string;
   assets?: string;
   liveCapture?: string;
@@ -44,13 +46,14 @@ export function attachSpatialReviewDiscoveryBridge(
   const allowed = (origin: string) => configured.has(origin)
     || Boolean(options.allowOrigin?.(origin))
     || (loopback(window.location.origin) && loopback(origin));
+  const { discoveryUrl: registeredDiscoveryUrl, ...documentRegistration } = registration;
   const discovery = normalizeSpatialReviewDiscovery({
     schema: SPATIAL_REVIEW_DISCOVERY_SCHEMA,
     version: 1,
-    ...registration,
+    ...documentRegistration,
     websiteUrl: registration.websiteUrl ?? window.location.origin,
   }, window.location.href);
-  const discoveryUrl = new URL(SPATIAL_REVIEW_DISCOVERY_PATH, discovery.websiteUrl).href;
+  const discoveryUrl = discoveryUrlsForWebsite(discovery.websiteUrl, registeredDiscoveryUrl)[0];
 
   const onMessage = (event: MessageEvent) => {
     if (!allowed(event.origin) || (event.source !== window.parent && event.source !== window.opener)) return;

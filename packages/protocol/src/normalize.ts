@@ -31,6 +31,34 @@ export function discoveryUrlForWebsite(websiteUrl: string) {
   return new URL(SPATIAL_REVIEW_DISCOVERY_PATH, normalizeWebsiteUrl(websiteUrl)).href;
 }
 
+function discoveryLocatorUrl(value: string, base: URL, label: string) {
+  if (!value.trim()) throw new Error(`${label} is not a valid URL.`);
+  let url: URL;
+  try { url = new URL(value, base); } catch { throw new Error(`${label} is not a valid URL.`); }
+  if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error(`${label} must use HTTP or HTTPS.`);
+  if (url.username || url.password) throw new Error(`${label} must not contain credentials.`);
+  if (url.origin !== base.origin) throw new Error(`${label} must use the website origin.`);
+  url.hash = "";
+  return url;
+}
+
+/** Return explicit, canonical-root and project-relative discovery candidates in
+ * interoperable lookup order. The existing single-URL helper remains canonical. */
+export function discoveryUrlsForWebsite(websiteUrl: string, explicitDiscoveryUrl?: string) {
+  const website = new URL(normalizeWebsiteUrl(websiteUrl));
+  if (website.username || website.password) throw new Error("websiteUrl must not contain credentials.");
+  website.hash = "";
+  website.search = "";
+  const projectBase = new URL(website);
+  projectBase.pathname = `${projectBase.pathname.replace(/\/+$/, "")}/`;
+  const candidates = [
+    ...(explicitDiscoveryUrl === undefined ? [] : [discoveryLocatorUrl(explicitDiscoveryUrl, projectBase, "discoveryUrl")]),
+    discoveryLocatorUrl(SPATIAL_REVIEW_DISCOVERY_PATH, website, "discoveryUrl"),
+    discoveryLocatorUrl(".well-known/spatial-review.json", projectBase, "discoveryUrl"),
+  ];
+  return [...new Set(candidates.map((candidate) => candidate.href))];
+}
+
 export function normalizeSpatialReviewDiscovery(payload: unknown, discoveryUrl: string): SpatialReviewDiscovery {
   const value = record(payload, "Spatial Review discovery document");
   if (value.schema !== SPATIAL_REVIEW_DISCOVERY_SCHEMA) throw new Error(`Unsupported discovery schema. Expected ${SPATIAL_REVIEW_DISCOVERY_SCHEMA}.`);

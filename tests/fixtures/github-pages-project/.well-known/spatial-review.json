@@ -1,0 +1,7 @@
+{
+  "schema": "spatial-review-discovery/v1",
+  "version": 1,
+  "name": "GitHub Pages project fixture",
+  "websiteUrl": "../",
+  "liveCapture": "../?spatial-review-capture=1"
+}
