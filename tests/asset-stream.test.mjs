@@ -98,6 +98,33 @@ test("concurrent requests share the first immutable representation snapshot", as
   textures.forEach((texture) => texture.dispose());
 });
 
+test("removing a noncanonical shared actor preserves its live deferred family", async () => {
+  const texture = new THREE.Texture();
+  const root = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial({ map: texture }));
+  let calls = 0;
+  const producer = async () => { calls += 1; return root; };
+  const registry = new SceneAssetRegistry("shared-deferred-r1");
+  const first = deferredRegistration(producer);
+  registry.registerDeferred(first);
+  registry.registerDeferred({ ...first, actorId: "deferred-city-secondary", sourceRef: "fixture#secondary" });
+
+  const produced = await registry.produceAssetRepresentation(
+    first.assetId, "review", "detail", 256_000, "visible", new AbortController().signal,
+  );
+  const resourceId = produced.asset.materials[0].maps[0].resourceId;
+  assert.equal(registry.hasTextureResource(resourceId), true);
+  assert.equal(registry.unregister("deferred-city-secondary"), true);
+  assert.equal(registry.hasTextureResource(resourceId), true, "the canonical actor still owns this immutable representation");
+
+  const cached = await registry.produceAssetRepresentation(
+    first.assetId, "review", "detail", 256_000, "visible", new AbortController().signal,
+  );
+  assert.equal(cached.asset.materials[0].maps[0].resourceId, resourceId);
+  assert.equal(calls, 1);
+
+  root.geometry.dispose(); root.material.dispose(); texture.dispose();
+});
+
 test("typed instance transfers are exact, owned, renderable, and mutually exclusive", () => {
   const source = streamedAsset("instances", 32);
   const prepared = prepareAssetTransfer(source, 64 * 1024, { typedInstances: true });

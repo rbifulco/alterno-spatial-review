@@ -5,6 +5,7 @@ import {
   SCENE_ACTORS_SCHEMA,
   SPATIAL_REVIEW_ASSET_STREAM_CAPABILITY,
   SPATIAL_REVIEW_INDEX_SCHEMA,
+  SPATIAL_REVIEW_MAX_BUILD_ID_LENGTH,
   SPATIAL_REVIEW_SOURCE_STATUS,
   type AssetRepresentationDescriptor,
   type AssetReviewDocument3D,
@@ -130,6 +131,9 @@ export class SceneAssetRegistry {
   private sourceStatus: SpatialReviewSourceStatusMessage;
   private sourceStatusListeners = new Set<(status: SpatialReviewSourceStatusMessage) => void>();
   constructor(buildId = `alterno-${new Date().toISOString()}`) {
+    if (typeof buildId !== "string" || !buildId.trim() || buildId.length > SPATIAL_REVIEW_MAX_BUILD_ID_LENGTH) {
+      throw new Error(`Spatial Review buildId must contain 1-${SPATIAL_REVIEW_MAX_BUILD_ID_LENGTH} characters.`);
+    }
     this.buildId = buildId;
     this.sourceStatus = { type: SPATIAL_REVIEW_SOURCE_STATUS, buildId, catalogRevision: this.catalogRevision, phase: "booting" };
   }
@@ -155,9 +159,11 @@ export class SceneAssetRegistry {
     const roots = registration.roots ?? (registration.root ? [registration.root] : []);
     if (!roots.length) throw new Error(`Scene actor "${registration.actorId}" has no asset root.`);
     const previous = this.registrations.get(registration.actorId) ?? this.deferredRegistrations.get(registration.actorId);
+    const affectedAssetIds = [registration.assetId, ...(previous ? [previous.assetId] : [])];
+    const previousCanonical = this.canonicalEntries(affectedAssetIds);
     this.deferredRegistrations.delete(registration.actorId);
     this.registrations.set(registration.actorId, { ...registration, roots });
-    this.actorCache.delete(registration.actorId); this.resetCatalog([registration.assetId, ...(previous ? [previous.assetId] : [])]);
+    this.actorCache.delete(registration.actorId); this.resetCatalog(affectedAssetIds, previousCanonical);
     roots.forEach((root, rootIndex) => {
       root.userData.spatialReviewAsset = { actorId: registration.actorId, assetId: registration.assetId, name: registration.name, sourceRef: registration.sourceRef, rootIndex };
       if (!root.name) root.name = roots.length > 1 ? `${registration.name} / part ${rootIndex + 1}` : registration.name;
@@ -171,6 +177,8 @@ export class SceneAssetRegistry {
     if (!finiteTransform(registration.transform) || !finiteBounds(registration.bounds)) throw new Error(`Deferred scene actor "${registration.actorId}" has invalid transform or bounds metadata.`);
     validateStreamDescriptor(registration.stream);
     const previous = this.registrations.get(registration.actorId) ?? this.deferredRegistrations.get(registration.actorId);
+    const affectedAssetIds = [registration.assetId, ...(previous ? [previous.assetId] : [])];
+    const previousCanonical = this.canonicalEntries(affectedAssetIds);
     this.registrations.delete(registration.actorId);
     this.deferredRegistrations.set(registration.actorId, {
       ...registration,
@@ -179,13 +187,14 @@ export class SceneAssetRegistry {
       stream: structuredClone(registration.stream),
     });
     this.actorCache.delete(registration.actorId);
-    this.resetCatalog([registration.assetId, ...(previous ? [previous.assetId] : [])]);
+    this.resetCatalog(affectedAssetIds, previousCanonical);
     return registration;
   }
   unregister(actorId: string) {
     const previous = this.registrations.get(actorId) ?? this.deferredRegistrations.get(actorId);
+    const previousCanonical = previous ? this.canonicalEntries([previous.assetId]) : undefined;
     const removed = this.registrations.delete(actorId) || this.deferredRegistrations.delete(actorId);
-    if (removed) { this.actorCache.delete(actorId); this.resetCatalog([previous!.assetId]); }
+    if (removed) { this.actorCache.delete(actorId); this.resetCatalog([previous!.assetId], previousCanonical); }
     return removed;
   }
   /** Register a transform-only owner. A root supplies a pose, never geometry. */
@@ -210,15 +219,20 @@ export class SceneAssetRegistry {
     const entries = actorId ? [this.registrations.get(actorId)].filter((value): value is SceneAssetRegistration => Boolean(value)) : this.ordered().filter((entry): entry is SceneAssetRegistration => !isDeferred(entry));
     entries.forEach((entry) => { this.graph.invalidate(entry.roots); this.actorCache.delete(entry.actorId); });
   }
-  private resetCatalog(assetIds: string[]) {
+  private resetCatalog(assetIds: string[], previousCanonical?: ReadonlyMap<string, AnySceneAssetRegistration | undefined>) {
     this.orderedEntries = undefined;
     this.catalogVersion += 1;
     this.sourceStatus = { type: SPATIAL_REVIEW_SOURCE_STATUS, buildId: this.buildId, catalogRevision: this.catalogRevision, phase: "booting" };
     this.sourceStatusListeners.forEach((listener) => listener(structuredClone(this.sourceStatus)));
     const affected = new Set(assetIds);
-    this.assetCache.forEach((entry, key) => { if (affected.has(entry.asset.id)) this.assetCache.delete(key); });
-    this.deferredRepresentationCache.forEach((entry, key) => { if (affected.has(entry.assetId)) this.deferredRepresentationCache.delete(key); });
-    this.textureResourceOwnerAssets.forEach((assetId, owner) => { if (affected.has(assetId)) this.releaseTextureResourceOwner(owner); });
+    let invalidated = affected;
+    if (previousCanonical) {
+      this.ordered();
+      invalidated = new Set([...affected].filter((assetId) => previousCanonical.get(assetId) !== this.assets.get(assetId)));
+    }
+    this.assetCache.forEach((entry, key) => { if (invalidated.has(entry.asset.id)) this.assetCache.delete(key); });
+    this.deferredRepresentationCache.forEach((entry, key) => { if (invalidated.has(entry.assetId)) this.deferredRepresentationCache.delete(key); });
+    this.textureResourceOwnerAssets.forEach((assetId, owner) => { if (invalidated.has(assetId)) this.releaseTextureResourceOwner(owner); });
     if (!this.registrations.size && !this.deferredRegistrations.size) {
       this.deferredRepresentationCache.clear();
       this.clearTextureResources();
@@ -240,6 +254,10 @@ export class SceneAssetRegistry {
       this.assets.clear(); this.orderedEntries.forEach((entry) => { if (!this.assets.has(entry.assetId)) this.assets.set(entry.assetId, entry); });
     }
     return this.orderedEntries;
+  }
+  private canonicalEntries(assetIds: readonly string[]) {
+    this.ordered();
+    return new Map([...new Set(assetIds)].map((assetId) => [assetId, this.assets.get(assetId)]));
   }
   private revision(entry: SceneAssetRegistration) { return entry.roots.map((root) => this.graph.inspect(root).revision).join(":"); }
   private releaseTextureResourceOwner(owner: string) {
