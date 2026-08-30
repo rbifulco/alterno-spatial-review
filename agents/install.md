@@ -71,15 +71,26 @@ current guidance, identify gaps, and record a compact integration plan:
 | Source mapping | Source definitions for placements, components, and path controls; coordinate conversions |
 | Migration | Stable IDs across reparenting; explicit old-to-new target mapping or a new baseline when changing component/actor boundaries |
 | Capture | Entry URL, readiness condition, reproducible scene state, refresh lifecycle |
+| Performance | Ordinary-page startup/frame/memory baseline; capture startup and catalog cost; expensive registrations; review-only GPU work; transfer and concurrency budgets |
 
 For the website's authored camera, scroll, or guided-view motion, also read and
 apply [Export navigation sequences](exporting-navigation-sequences.md). Mark
 review scales as not applicable only when the existing experience does not
 use them; missing exports for existing content remain integration work.
 
+Measure a representative baseline before changing the integration. At minimum,
+record ordinary-page startup behavior, steady-state frame behavior, and any
+existing performance test, plus capture readiness time and the largest known
+review assets when those can be measured. Identify work caused only by review:
+duplicate scene construction, eager hierarchy traversal or serialization,
+shader/post-processing warmup, texture readback, unbounded producers, and extra
+render loops. Do not improve a metric by silently omitting intended actors,
+materials, hierarchy, or authored high-detail geometry.
+
 **Complete when:** every intended review target has an owner in source and a
 review scale, the required integration changes are identified, and exclusions,
-proxies, and unsupported behavior are recorded.
+proxies, unsupported behavior, baseline performance, and performance risks are
+recorded.
 
 ## 3. Install or update the SDK as needed
 
@@ -147,20 +158,29 @@ import {
 const buildId = import.meta.env.VITE_GIT_COMMIT ?? "development";
 export const spatialReviewRegistry = new SceneAssetRegistry(buildId);
 
-const bridgeOptions = {
+const authorization = {
   allowOfficialEditor: false, // Set true only after step 1 approval.
   allowedOrigins: [] as string[], // Additional approved exact origins only.
+};
+
+const captureOptions = {
+  ...authorization,
+  // Choose these from the scene's measured asset sizes and memory budget.
+  maxGeometryBytes: 64 * 1024 * 1024,
+  maxConcurrentAssetRequests: 2,
+  maxInFlightBytes: 96 * 1024 * 1024,
+  maxQueuedAssetRequests: 24,
 };
 
 export function startReviewDiscovery() {
   return attachSpatialReviewDiscoveryBridge({
     name: "Courtyard",
     liveCapture: "/?spatial-review-capture=1",
-  }, bridgeOptions);
+  }, authorization);
 }
 
 export function startReviewCapture() {
-  return attachSceneAssetRegistryBridge(spatialReviewRegistry, bridgeOptions);
+  return attachSceneAssetRegistryBridge(spatialReviewRegistry, captureOptions);
 }
 ```
 
@@ -197,6 +217,32 @@ registrations are ready. The advertised capture URL must construct that same
 content without requiring a reviewer to scroll, click, or wait for an unrelated
 interaction. Select and document a reproducible state for procedural or animated
 experiences, while preserving the normal website behavior.
+
+Keep the normal page's work proportional to what the website already renders.
+Do not build a second detailed scene only to register it when authoritative roots
+can be registered directly. A dedicated capture URL may disable presentation-only
+work such as post-processing, shadow-map refreshes, audio, simulation, adaptive
+quality, and high device-pixel ratios when those do not change registered review
+evidence. Keep geometry/material detail at the documented review fidelity, make
+the capture policy explicit in its URL or setup, and test the ordinary page for
+regressions as well as the capture page.
+
+For geometry that is expensive to construct, inspect, or retain, prefer
+`registerDeferred()` when the selected SDK supports `asset-stream-v1`. Publish
+cheap, accurate world bounds and immutable overview/detail revisions; build only
+the requested representation; honor `AbortSignal` before and during expensive
+work; bound progress; and keep the result within `maxBytes`. Configure measured
+per-request, queue, concurrency, and aggregate in-flight limits on the capture
+bridge. Keep eager `register()` entries where compatibility with older editors
+is required. Read [Deferred asset streaming](../docs/deferred-asset-streaming.md)
+before implementing a producer, and use `setSourceStatus()` for meaningful
+application-level readiness without starting the bridge early.
+
+Reuse immutable geometry and materials where the website already does, and
+follow the SDK's ownership helpers when constructing review-only hierarchies.
+Dispose temporary hierarchies on cancellation, failure, refresh, and unmount;
+never dispose resources still owned by the rendered website. A cache must be
+bounded by source/build/profile/asset/representation revision, not just asset ID.
 
 Keep the cleanup functions returned by both bridges and call them on unmount
 or hot reload. Retain the capture page while live resource requests are needed.
@@ -276,6 +322,7 @@ or editor interactions. Perform these checks separately:
 | Resources | Both scene and detailed asset views load; important textures display or a specific limitation is reported |
 | Identity | Rebuilding unchanged content preserves actor, asset, component, material, and navigation identities |
 | Refresh | A source change appears after refreshing the connected site, without duplicate registrations or stale geometry |
+| Performance | Ordinary-page startup and frame behavior do not materially regress; capture reaches metadata promptly; overview/detail requests respect byte, queue, concurrency, cancellation, and memory limits; multiple open editor frames do not multiply unbounded render or generation work |
 
 Exercise one representative interaction in each applicable editor:
 

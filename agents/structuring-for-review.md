@@ -278,6 +278,53 @@ or guided-view routes, follow
 [Export navigation sequences](exporting-navigation-sequences.md) for the mapping,
 editor capabilities, and checks.
 
+## Keep review performance bounded
+
+Review structure and performance are coupled. An actor boundary that creates
+thousands of separately retained roots, an asset that serializes an entire world
+for one selection, or a capture page that runs the full game in every editor
+frame is not a complete integration even when its schema is valid.
+
+Use the authoritative rendered roots when they already have the right semantic
+boundaries. Do not clone the full scene for review convenience. When optimized
+rendering erased needed boundaries, build the smallest review-only representation
+that restores them, share immutable resources, and dispose it through the SDK's
+ownership contract. Never trade away stable actor IDs or meaningful component
+selection merely to reduce draw calls or catalog entries.
+
+Classify each expensive asset before choosing its transport:
+
+| Asset behavior | Preferred approach |
+| --- | --- |
+| Already rendered, modest hierarchy | Eager `register()`; progressive transfer keeps geometry serialization request-driven |
+| Already rendered, expensive full detail | Eager registration with measured bridge limits, or deferred metadata backed by accurate known bounds when inspection itself is costly |
+| Review-only and cheap | Construct once after authoritative data is ready; release it on teardown |
+| Review-only and expensive/procedural | `registerDeferred()` with immutable overview/detail revisions, cancellation, progress, and a bounded producer |
+| Repeated placement data | Preserve actor identities; share one canonical asset and use typed instance transport where the review boundary supports instances |
+
+A deferred catalog is metadata, not permission to guess. Its world transform and
+bounds must match the produced representation, its byte/triangle estimates must
+be credible, and one revision must always mean the same immutable result. An
+overview may simplify detail only when it preserves the placement, silhouette,
+and context needed for Scene review; Asset detail must retain the construction
+evidence promised by the integration. Maintain an eager fallback or explicitly
+record the minimum editor capability when legacy peers still matter.
+
+Treat the capture document as a resource worker as well as a visible page. Freeze
+unrelated simulation and animation, avoid continuous rendering when a deterministic
+frame is sufficient, cap device pixel ratio, and disable presentation-only GPU
+passes only when registered geometry, materials, transforms, textures, and source
+mapping remain unchanged. Bound per-request bytes, queued work, concurrency, and
+aggregate in-flight memory. Producers must respond to cancellation and must not
+leave timers, workers, GPU resources, or shared cache entries alive after detach.
+
+Measure both sides of the integration: the ordinary website must not pay material
+startup, frame, or memory cost merely because discovery is installed, while the
+capture must publish metadata promptly and remain responsive during overview and
+detail requests. Test refresh and at least one concurrent/multiple-frame scenario;
+editor source frames can coexist, so per-frame loops and caches must not scale
+without a documented bound.
+
 ## Preserve the feedback loop
 
 Editor changes express intent. Implement them in authoritative source, then
@@ -319,6 +366,14 @@ Before completing the review-structure step, account for every intended target:
 - Each journey has recognizable moments and traceable authored inputs.
 - Each source mapping includes enough information to reverse coordinate changes.
 - Context, proxies, unsupported effects, and intentional exclusions are recorded.
+- The ordinary website retains its measured startup/frame behavior, and discovery
+  does not eagerly construct or serialize review-only detail.
+- Capture-specific quality reductions remove only presentation work; registered
+  review evidence and documented fidelity remain intact.
+- Expensive producers have accurate metadata, immutable revisions, cancellation,
+  byte/concurrency/in-flight limits, bounded caches, and teardown coverage.
+- Capture readiness, overview/detail requests, refresh, and concurrent editor
+  frames complete without unbounded CPU, GPU, or memory growth.
 
 Then perform the [editor checks](install.md#6-verify-the-review-loop). For the
 courtyard, the reviewer must be able to move one gate, adjust its arrival reveal,
