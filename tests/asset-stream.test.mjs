@@ -68,7 +68,51 @@ test("stream metadata and responses reject duplicate, malformed, and over-budget
   const asset = prepareAssetTransfer(streamedAsset("deferred-city", 2), 16_384, { typedInstances: true }).asset;
   assert.equal(validateSpatialReviewAssetResponse({ type: SPATIAL_REVIEW_ASSET_RESPONSE, requestId: "r", buildId: "b", assetId: "deferred-city", profile: "review", ok: true, asset, representationId: "detail", revision: "r1" }, 16_384).ok, true);
   assert.equal(validateSpatialReviewAssetResponse({ type: SPATIAL_REVIEW_ASSET_RESPONSE, requestId: "r", buildId: "b", assetId: "deferred-city", profile: "review", ok: true, asset: { ...asset, nodes: [{ ...asset.nodes[0], instances: [] }] } }, 16_384).ok, false);
+  const opaque = { ...asset, opaque: "x".repeat(20_000) };
+  assert.throws(() => prepareAssetTransfer(opaque, 16_384, { typedInstances: true }), /transfer budget/);
+  assert.equal(validateSpatialReviewAssetResponse({ type: SPATIAL_REVIEW_ASSET_RESPONSE, requestId: "opaque", buildId: "b", assetId: "deferred-city", profile: "review", ok: true, asset: opaque, representationId: "detail", revision: "r1" }, 16_384).ok, false);
+  const opaqueArray = [];
+  opaqueArray.extension = "x".repeat(20_000);
+  assert.throws(() => prepareAssetTransfer({ ...asset, opaqueArray }, 16_384, { typedInstances: true }), /transfer budget/);
+  assert.equal(validateSpatialReviewAssetResponse({ type: SPATIAL_REVIEW_ASSET_RESPONSE, requestId: "opaque-array", buildId: "b", assetId: "deferred-city", profile: "review", ok: true, asset: { ...asset, opaqueArray }, representationId: "detail", revision: "r1" }, 16_384).ok, false);
+  const aliasedPositions = new Float32Array(30_000);
+  const aliased = streamedAsset("aliased", 0);
+  aliased.nodes = Array.from({ length: 3 }, (_, index) => ({
+    ...aliased.nodes[0],
+    id: `aliased-${index}`,
+    geometry: { kind: "mesh", positions: aliasedPositions },
+    instances: undefined,
+  }));
+  const aliasedTransfer = prepareAssetTransfer(aliased, 1024 * 1024);
+  assert.ok(aliasedTransfer.bytes >= aliasedPositions.byteLength * 3, "each compacted alias is reserved in the transfer budget");
   assert.equal(validateSpatialReviewSourceStatus({ type: "alterno:spatial-review:source-status", buildId: "b", catalogRevision: "r", phase: "streaming", expectedActors: 1, readyActors: 2 }).ok, false);
+});
+
+test("deferred catalog replies cannot mix state from conflicting peer negotiations", async () => {
+  const registry = new SceneAssetRegistry("catalog-negotiation-r1");
+  registry.registerDeferred(deferredRegistration(async (context) => streamedAsset(context.assetId, 1)));
+  const received = [];
+  let listener;
+  const editor = { postMessage(message) { received.push(message); } };
+  const originalWindow = globalThis.window;
+  globalThis.window = { location: { origin: "https://site.example" }, parent: editor, opener: null, addEventListener(_type, callback) { listener = callback; }, removeEventListener() {}, setTimeout };
+  let detach;
+  try {
+    detach = attachSceneAssetRegistryBridge(registry, { allowedOrigins: ["https://editor.example"], maxGeometryBytes: 256_000 });
+    const send = (data) => listener({ data, origin: "https://editor.example", source: editor });
+    send({ type: SPATIAL_REVIEW_REQUEST, requestId: "stream-first", profile: "review", capabilities: [SPATIAL_REVIEW_ASSET_STREAM_CAPABILITY], progressive: true, geometryTransfer: { capability: "geometry-transfer-v1", maxBytes: 128_000 } });
+    send({ type: SPATIAL_REVIEW_REQUEST, requestId: "flat-second", profile: "scene" });
+    await wait();
+    const first = received.find((message) => message.requestId === "stream-first");
+    const second = received.find((message) => message.requestId === "flat-second");
+    assert.equal(first.assetStream, undefined, "an earlier response is downgraded when the peer disables streaming before serialization");
+    assert.equal(first.progressive, undefined);
+    assert.equal(second.assetStream, undefined);
+    assert.equal(second.progressive, undefined);
+  } finally {
+    detach?.();
+    globalThis.window = originalWindow;
+  }
 });
 
 test("bridge negotiates streaming, reuses revisions, transfers typed instances, and cancels active producers", async () => {

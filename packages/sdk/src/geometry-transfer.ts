@@ -6,6 +6,69 @@ export type PrepareAssetTransferOptions = {
   typedInstances?: boolean;
 };
 
+function enumerableDataEntries(value: object) {
+  return Object.keys(value).map((key) => {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor || !("value" in descriptor)) throw new TypeError("Spatial Review transfers must contain only data properties.");
+    return [key, descriptor.value] as const;
+  });
+}
+
+function measureSpatialReviewTransferBytes(value: unknown, maxBytes: number, projections = new WeakMap<object, number>()) {
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 0) throw new TypeError("The transfer budget must be a bounded non-negative integer.");
+  const seen = new WeakSet<object>(), active = new WeakSet<object>(), buffers = new WeakSet<object>();
+  let bytes = 0;
+  const add = (amount: number) => {
+    bytes += amount;
+    if (!Number.isSafeInteger(bytes) || bytes > maxBytes) throw new RangeError("The payload exceeds the negotiated transfer budget.");
+  };
+  const visit = (candidate: unknown): void => {
+    if (candidate === null || candidate === undefined) { add(1); return; }
+    if (typeof candidate === "string") { add(8 + candidate.length * 4); return; }
+    if (typeof candidate === "number") { add(8); return; }
+    if (typeof candidate === "boolean") { add(4); return; }
+    if (typeof candidate !== "object") throw new TypeError("Spatial Review transfers contain an unsupported value.");
+    const projection = projections.get(candidate);
+    if (projection !== undefined) { add(projection); return; }
+    if (candidate instanceof ArrayBuffer) { if (!buffers.has(candidate)) { buffers.add(candidate); add(candidate.byteLength); } return; }
+    if (ArrayBuffer.isView(candidate)) { const buffer = candidate.buffer as object; if (!buffers.has(buffer)) { buffers.add(buffer); add(candidate.buffer.byteLength); } return; }
+    if (active.has(candidate)) throw new TypeError("Spatial Review transfers must not contain cycles.");
+    if (seen.has(candidate)) return;
+    const prototype = Object.getPrototypeOf(candidate);
+    if (!Array.isArray(candidate) && prototype !== Object.prototype && prototype !== null) throw new TypeError("Spatial Review transfers must contain only plain objects, arrays, and supported buffers.");
+    seen.add(candidate); active.add(candidate);
+    const entries = enumerableDataEntries(candidate);
+    if (Array.isArray(candidate)) {
+      add(16 + candidate.length * 8);
+      entries.forEach(([key, entry]) => {
+        if (!/^(0|[1-9]\d*)$/.test(key) || Number(key) >= candidate.length) add(8 + key.length * 4);
+        visit(entry);
+      });
+    } else { add(16); entries.forEach(([key, entry]) => { add(8 + key.length * 4); visit(entry); }); }
+    active.delete(candidate);
+  };
+  visit(value);
+  return bytes;
+}
+
+function objectReferenceCounts(value: unknown) {
+  const counts = new WeakMap<object, number>();
+  const visited = new WeakSet<object>();
+  const visit = (candidate: unknown): void => {
+    if (!candidate || typeof candidate !== "object" || visited.has(candidate)) return;
+    visited.add(candidate);
+    if (candidate instanceof ArrayBuffer || ArrayBuffer.isView(candidate)) return;
+    enumerableDataEntries(candidate).forEach(([, child]) => {
+      if (!child || typeof child !== "object") return;
+      counts.set(child, (counts.get(child) ?? 0) + 1);
+      visit(child);
+    });
+  };
+  if (value && typeof value === "object") counts.set(value, 1);
+  visit(value);
+  return counts;
+}
+
 function instanceBytes(instanceData: AssetInstanceData, maxBytes: number) {
   if (instanceData.encoding !== "matrix-f32-v1" || !Number.isSafeInteger(instanceData.count) || instanceData.count < 0 || instanceData.count > 100_000) throw new TypeError("The asset contains invalid typed instance metadata.");
   if (!(instanceData.transforms instanceof Float32Array) || instanceData.transforms.length !== instanceData.count * 16 || !instanceData.transforms.every(Number.isFinite)) throw new TypeError("Typed instance transforms must contain count * 16 finite Float32 values.");
@@ -22,14 +85,25 @@ function instanceBytes(instanceData: AssetInstanceData, maxBytes: number) {
 /** Only transfer owned copies. Detaching renderer buffers or the serialization cache
  * would corrupt the source scene and subsequent handoffs. */
 export function prepareAssetTransfer(source: ReviewAsset3D, maxBytes = 64 * 1024 * 1024, options: PrepareAssetTransferOptions = {}) {
-  let bytes = 0;
+  const references = objectReferenceCounts(source);
+  const projections = new WeakMap<object, number>();
+  const projected = new WeakSet<object>();
+  let aliasedProjectionBytes = 0;
+  const project = (value: unknown, projectedBytes: number) => {
+    if (!value || typeof value !== "object" || projected.has(value)) return;
+    projected.add(value);
+    const referenceCount = references.get(value) ?? 0;
+    if (referenceCount <= 1) projections.set(value, projectedBytes);
+    else aliasedProjectionBytes += projectedBytes * (referenceCount - 1);
+  };
   const seen = new Set<AssetGeometry>();
   const check = (geometry: AssetGeometry | undefined) => {
     if (!geometry || geometry.kind !== "mesh" || seen.has(geometry)) return;
     seen.add(geometry);
-    for (const array of [geometry.positions, geometry.normals, geometry.uvs, geometry.indices]) {
-      if (array) bytes += ArrayBuffer.isView(array) ? array.byteLength : array.length * 4;
-    }
+    project(geometry.positions, geometry.positions.length * 4);
+    if (geometry.normals) project(geometry.normals, geometry.normals.length * 4);
+    if (geometry.uvs) project(geometry.uvs, geometry.uvs.length * 4);
+    if (geometry.indices) project(geometry.indices, geometry.indices.length * (geometry.indices instanceof Uint16Array ? 2 : 4));
   };
   source.geometries?.forEach((definition) => check(definition.geometry));
   source.nodes.forEach((node) => {
@@ -37,11 +111,12 @@ export function prepareAssetTransfer(source: ReviewAsset3D, maxBytes = 64 * 1024
     if (node.instances !== undefined && node.instanceData !== undefined) throw new TypeError("An asset node cannot use both legacy and typed instance encodings.");
     if (node.instances) {
       if (node.instances.length > 100_000 || node.instances.some((matrix) => !Array.isArray(matrix) || matrix.length !== 16 || !matrix.every(Number.isFinite))) throw new TypeError("Legacy instance transforms must be finite 4x4 matrices.");
-      bytes += node.instances.length * 16 * (options.typedInstances ? 4 : 8);
+      if (options.typedInstances) project(node.instances, 128 + node.instances.length * 16 * 4);
     }
-    if (node.instanceData) bytes += instanceBytes(node.instanceData, maxBytes);
+    if (node.instanceData) instanceBytes(node.instanceData, maxBytes);
   });
-  if (bytes > maxBytes) throw new RangeError("The asset exceeds the negotiated transfer budget.");
+  if (aliasedProjectionBytes > maxBytes) throw new RangeError("The payload exceeds the negotiated transfer budget.");
+  const bytes = measureSpatialReviewTransferBytes(source, maxBytes - aliasedProjectionBytes, projections) + aliasedProjectionBytes;
   const asset = structuredClone(source);
   const buffers = new Set<ArrayBuffer>();
   seen.clear();

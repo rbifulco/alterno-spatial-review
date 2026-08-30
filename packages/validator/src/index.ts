@@ -38,6 +38,48 @@ const MAX_REVISION_LENGTH = 200;
 const boundedId = (value: unknown, max = 500) => typeof value === "string" && value.length > 0 && value.length <= max;
 const nonNegativeInteger = (value: unknown, max = Number.MAX_SAFE_INTEGER) => typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= max;
 
+function enumerableDataEntries(value: object) {
+  return Object.keys(value).map((key) => {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor || !("value" in descriptor)) throw new TypeError("Spatial Review transfers must contain only data properties.");
+    return [key, descriptor.value] as const;
+  });
+}
+
+function measureSpatialReviewTransferBytes(value: unknown, maxBytes: number) {
+  const seen = new WeakSet<object>(), active = new WeakSet<object>(), buffers = new WeakSet<object>();
+  let bytes = 0;
+  const add = (amount: number) => {
+    bytes += amount;
+    if (!Number.isSafeInteger(bytes) || bytes > maxBytes) throw new RangeError("The payload exceeds the negotiated transfer budget.");
+  };
+  const visit = (candidate: unknown): void => {
+    if (candidate === null || candidate === undefined) { add(1); return; }
+    if (typeof candidate === "string") { add(8 + candidate.length * 4); return; }
+    if (typeof candidate === "number") { add(8); return; }
+    if (typeof candidate === "boolean") { add(4); return; }
+    if (typeof candidate !== "object") throw new TypeError("Spatial Review transfers contain an unsupported value.");
+    if (candidate instanceof ArrayBuffer) { if (!buffers.has(candidate)) { buffers.add(candidate); add(candidate.byteLength); } return; }
+    if (ArrayBuffer.isView(candidate)) { const buffer = candidate.buffer as object; if (!buffers.has(buffer)) { buffers.add(buffer); add(candidate.buffer.byteLength); } return; }
+    if (active.has(candidate)) throw new TypeError("Spatial Review transfers must not contain cycles.");
+    if (seen.has(candidate)) return;
+    const prototype = Object.getPrototypeOf(candidate);
+    if (!Array.isArray(candidate) && prototype !== Object.prototype && prototype !== null) throw new TypeError("Spatial Review transfers must contain only plain objects, arrays, and supported buffers.");
+    seen.add(candidate); active.add(candidate);
+    const entries = enumerableDataEntries(candidate);
+    if (Array.isArray(candidate)) {
+      add(16 + candidate.length * 8);
+      entries.forEach(([key, entry]) => {
+        if (!/^(0|[1-9]\d*)$/.test(key) || Number(key) >= candidate.length) add(8 + key.length * 4);
+        visit(entry);
+      });
+    } else { add(16); entries.forEach(([key, entry]) => { add(8 + key.length * 4); visit(entry); }); }
+    active.delete(candidate);
+  };
+  visit(value);
+  return bytes;
+}
+
 function assetStreamErrors(value: unknown, label = "stream") {
   const errors: string[] = [];
   if (!object(value)) return [`${label} must be an object.`];
@@ -307,6 +349,8 @@ export function validateSpatialReviewAssetResponse(value: unknown, maxBytes = 64
       if (!object(value.asset)) errors.push("A successful response must include an asset.");
       else {
         const asset = value.asset;
+        try { measureSpatialReviewTransferBytes(asset, maxBytes); }
+        catch (error) { errors.push(error instanceof Error ? error.message : "asset exceeds the negotiated transfer budget."); }
         if (asset.id !== value.assetId) errors.push("asset.id must match assetId.");
         if (asset.stream !== undefined) errors.push(...assetStreamErrors(asset.stream, "asset.stream"));
         if (Array.isArray(asset.nodes)) asset.nodes.forEach((node, index) => {

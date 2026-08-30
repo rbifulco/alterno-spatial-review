@@ -412,18 +412,26 @@ export function attachSceneAssetRegistryBridge(registry: SceneAssetRegistry, opt
     }
     schedule(() => {
       try {
-        const payload = registry.toReviewIndex(profile, legacy, progressive, !legacy && Array.isArray(request.capabilities) && request.capabilities.includes(SPATIAL_REVIEW_ASSEMBLIES_CAPABILITY), stream);
+        // Another request from this peer may have changed the connection-wide
+        // negotiation before this deferred serialization runs. Intersect this
+        // request with the current state so the response never advertises a
+        // transport that subsequent messages cannot use.
+        const responseProgressive = progressive && state.progressive;
+        const responseStream = stream && state.stream && responseProgressive;
+        const responseResourceLimit = Math.min(state.resourceLimit, requestedLimit ? Math.min(maxResourceBytes, requestedLimit) : maxResourceBytes);
+        const responseGeometryLimit = Math.min(state.geometryLimit, progressive ? Math.min(maxGeometryBytes, Math.floor(offeredGeometry!.maxBytes)) : maxGeometryBytes);
+        const payload = registry.toReviewIndex(profile, legacy, responseProgressive, !legacy && Array.isArray(request.capabilities) && request.capabilities.includes(SPATIAL_REVIEW_ASSEMBLIES_CAPABILITY), responseStream);
         post(target, event.origin, {
           type: legacy ? LEGACY_SPATIAL_REVIEW_CATALOG : SPATIAL_REVIEW_CATALOG,
           profile,
           requestId: request.requestId,
           payload,
-          resourceTransfer: { ...resourceTransfer, maxBytes: state.resourceLimit },
-          ...(progressive ? { progressive: true, geometryTransfer: { ...geometryTransfer, maxBytes: state.geometryLimit } } : {}),
-          ...(stream ? { assetStream } : {}),
+          resourceTransfer: { ...resourceTransfer, maxBytes: responseResourceLimit },
+          ...(responseProgressive ? { progressive: true, geometryTransfer: { ...geometryTransfer, maxBytes: responseGeometryLimit } } : {}),
+          ...(responseStream ? { assetStream } : {}),
         });
-        state.readyForStatus = stream;
-        if (stream) postStatus(target, state, registry.getSourceStatus(), true);
+        state.readyForStatus = state.stream && (state.readyForStatus || responseStream);
+        if (responseStream) postStatus(target, state, registry.getSourceStatus(), true);
       } catch { /* Peer closed or the scene changed during capture. */ }
     });
   };

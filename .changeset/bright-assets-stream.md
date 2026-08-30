@@ -10,4 +10,6 @@ revision-aware representation requests, bounded progress/status messages, and
 typed instance transfer buffers while retaining complete and progressive legacy
 fallbacks. Cancellation releases scheduler capacity even when a producer is
 uncooperative, source status aggregates all peers, and superseded live texture
-leases no longer survive their asset revision.
+leases no longer survive their asset revision. Negotiated byte limits cover the
+complete clone payload, and deferred catalog responses cannot mix conflicting
+per-peer negotiation state.
