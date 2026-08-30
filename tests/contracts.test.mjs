@@ -234,6 +234,27 @@ test("serializes registered Three.js roots without polygon decimation", () => {
   assert.equal(validateAssetDocument(index.assetCatalog).ok, true);
 });
 
+test("SDK build identities match the bounded wire contract", () => {
+  assert.throws(() => new SceneAssetRegistry(""), /buildId/);
+  assert.throws(() => new SceneAssetRegistry("x".repeat(201)), /buildId/);
+  assert.equal(new SceneAssetRegistry("x".repeat(200)).buildId.length, 200);
+});
+
+test("serialized line and point assets retain their valid minimum vertex counts", () => {
+  const root = new THREE.Group();
+  const lineGeometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(1, 0, 0)]);
+  const pointGeometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 1, 0)]);
+  root.add(new THREE.Line(lineGeometry, new THREE.LineBasicMaterial()));
+  root.add(new THREE.Points(pointGeometry, new THREE.PointsMaterial()));
+  const registry = new SceneAssetRegistry("line-point-r1");
+  registry.register({ actorId: "line-point", assetId: "line-point", name: "Line and point", category: "Test", sourceRef: "fixture#line-point", root });
+  const catalog = registry.toReviewIndex("review").assetCatalog;
+  assert.deepEqual(catalog.assets[0].nodes.filter((node) => node.geometryId).map((node) => node.type), ["line", "points"]);
+  assert.equal(validateAssetDocument(catalog).ok, true);
+  lineGeometry.dispose(); pointGeometry.dispose();
+  root.children.forEach((child) => child.material.dispose());
+});
+
 test("document validators reject incomplete render records, broken hierarchies, and missing asset references", () => {
   assert.equal(validateSceneDocument({ schema: "scene-actors/v1", actors: [{}] }).ok, false);
   assert.equal(validateAssetDocument({ schema: "asset-review-3d/v1", id: "bad", name: "Bad", units: "m", assets: [{}] }).ok, false);
@@ -247,7 +268,34 @@ test("document validators reject incomplete render records, broken hierarchies, 
   assert.match(validateAssetDocument(cyclic).errors.join("\n"), /hierarchy cycle/);
   const malformedGeometry = structuredClone(index.assetCatalog);
   malformedGeometry.assets[0].geometries[0].geometry.positions = [];
-  assert.match(validateAssetDocument(malformedGeometry).errors.join("\n"), /at least three finite XYZ vertices/);
+  assert.match(validateAssetDocument(malformedGeometry).errors.join("\n"), /at least 1 finite XYZ vertex|enough vertices/);
+  const emptyStatic = structuredClone(index.assetCatalog);
+  emptyStatic.assets[0].nodes = [];
+  emptyStatic.assets[0].geometries = [];
+  emptyStatic.assets[0].materials = [];
+  assert.match(validateAssetDocument(emptyStatic).errors.join("\n"), /must contain renderable geometry/);
+  emptyStatic.assets[0].stream = {
+    capability: "asset-stream-v1", revision: "empty-r1",
+    representations: [{ id: "detail", purpose: "detail", revision: "detail-r1", estimatedBytes: 1, attributes: ["position"] }],
+  };
+  assert.equal(validateAssetDocument(emptyStatic).ok, false, "static documents still require embedded geometry");
+  assert.equal(validateAssetDocument(emptyStatic, { allowStreamMetadata: true }).ok, true, "live progressive catalogs may intentionally omit geometry");
+
+  const materialFanout = structuredClone(index.assetCatalog);
+  const renderedNode = materialFanout.assets[0].nodes.find((node) => node.geometryId || node.geometry);
+  renderedNode.materialIds = Array(257).fill(materialFanout.assets[0].materials[0].id);
+  assert.match(validateAssetDocument(materialFanout).errors.join("\n"), /at most 256 declared material references/);
+
+  const invalidGroupRange = structuredClone(index.assetCatalog);
+  invalidGroupRange.assets[0].geometries[0].geometry.groups = [{ start: 999_999, count: 3, materialIndex: 0 }];
+  assert.match(validateAssetDocument(invalidGroupRange).errors.join("\n"), /exceeds the geometry draw range/);
+
+  const invalidGroupMaterial = structuredClone(index.assetCatalog);
+  invalidGroupMaterial.assets[0].materials.push({ ...invalidGroupMaterial.assets[0].materials[0], id: "second-material" });
+  const groupedNode = invalidGroupMaterial.assets[0].nodes.find((node) => node.geometryId || node.geometry);
+  groupedNode.materialIds = [invalidGroupMaterial.assets[0].materials[0].id, "second-material"];
+  invalidGroupMaterial.assets[0].geometries[0].geometry.groups = [{ start: 0, count: 3, materialIndex: 2 }];
+  assert.match(validateAssetDocument(invalidGroupMaterial).errors.join("\n"), /does not reference a node material slot/);
   const missingAsset = structuredClone(index);
   missingAsset.scene.actors[0].assetId = "missing";
   assert.match(validateReviewIndex(missingAsset).errors.join("\n"), /does not reference assetCatalog/);

@@ -1,5 +1,6 @@
 import {
   discoveryUrlsForWebsite,
+  normalizeWebsiteUrl,
   spatialReviewEditorUrl,
   type SpatialReviewDiscovery,
 } from "@alterno-dev/spatial-review-protocol";
@@ -110,7 +111,7 @@ export async function resolveWebsiteDiscovery(
 ): Promise<ResolvedWebsiteDiscovery> {
   const fetcher = options.fetch ?? fetch;
   const candidates = discoveryUrlsForWebsite(websiteUrl, options.discoveryUrl);
-  const websiteOrigin = new URL(websiteUrl).origin;
+  const websiteOrigin = new URL(normalizeWebsiteUrl(websiteUrl)).origin;
   const attempts: DiscoveryAttempt[] = [];
   for (const candidate of candidates) {
     let response: Response;

@@ -24,6 +24,15 @@ export const SPATIAL_REVIEW_SOURCE_STATUS = "alterno:spatial-review:source-statu
 export const SPATIAL_REVIEW_ASSET_PROGRESS = "alterno:spatial-review:asset-progress" as const;
 export const SPATIAL_REVIEW_ASSET_CANCEL = "alterno:spatial-review:asset-cancel" as const;
 
+/** Shared producer/consumer safety limits for live catalog identity and render
+ * fan-out. Keeping these in the protocol package prevents SDKs and validators
+ * from advertising payloads that conforming editors must reject. */
+export const SPATIAL_REVIEW_MAX_BUILD_ID_LENGTH = 200;
+export const SPATIAL_REVIEW_MAX_NODE_MATERIAL_IDS = 256;
+export const SPATIAL_REVIEW_MAX_ASSET_MATERIAL_REFERENCES = 100_000;
+export const SPATIAL_REVIEW_MAX_GEOMETRY_GROUPS = 20_000;
+export const SPATIAL_REVIEW_MAX_ASSET_GEOMETRY_GROUPS = 100_000;
+
 /** Temporary wire aliases used only while deployed Sole/editor builds migrate. */
 export const LEGACY_SPATIAL_REVIEW_READY = "sole:scene-asset-registry:ready" as const;
 export const LEGACY_SPATIAL_REVIEW_REQUEST = "sole:scene-asset-registry:request" as const;

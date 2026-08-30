@@ -310,6 +310,13 @@ and context needed for Scene review; Asset detail must retain the construction
 evidence promised by the integration. Maintain an eager fallback or explicitly
 record the minimum editor capability when legacy peers still matter.
 
+Treat the protocol's exported safety limits as authoring constraints, not just
+last-minute validator errors. Build identities are bounded, component material
+slot arrays and their per-asset aggregate must stay bounded, and geometry groups
+must fit both the geometry draw range and the component's multi-material slots.
+Split a genuinely larger design into meaningful review components instead of
+emitting giant repeated material arrays or synthetic draw groups.
+
 Treat the capture document as a resource worker as well as a visible page. Freeze
 unrelated simulation and animation, avoid continuous rendering when a deterministic
 frame is sufficient, cap device pixel ratio, and disable presentation-only GPU

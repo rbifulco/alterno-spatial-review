@@ -22,6 +22,18 @@ const projectDiscovery = {
 const emptyScene = { schema: "scene-actors/v1", actors: [] };
 const emptyAssets = { schema: "asset-review-3d/v1", id: "assets", name: "Assets", units: "m", assets: [] };
 
+test("CLI normalizes a bare host before binding discovery to its website origin", async () => {
+  const discoveryUrl = "https://project.example/.well-known/spatial-review.json";
+  const resolved = await resolveWebsiteDiscovery("project.example/app/", {
+    fetch: async (url) => {
+      assert.equal(url, discoveryUrl);
+      return jsonResponse(url, { ...projectDiscovery, websiteUrl: "https://project.example/app/" });
+    },
+  });
+  assert.equal(resolved.discoveryUrl, discoveryUrl);
+  assert.equal(resolved.discovery.websiteUrl, "https://project.example/app/");
+});
+
 test("CLI discovery falls back from the canonical root to a project manifest", async () => {
   const calls = [];
   const resolved = await resolveWebsiteDiscovery("https://owner.github.io/project/", {
@@ -178,6 +190,23 @@ test("CLI rejects incomplete asset records and malformed render structure", asyn
         : jsonResponse(url, { ...emptyAssets, assets: [{}] }),
     }),
     /assets\[0\].*(id|nodes|materials|feedback)/,
+  );
+});
+
+test("CLI rejects static asset records that contain no reviewable geometry", async () => {
+  const discoveryUrl = "https://project.example/discovery.json";
+  const emptyAsset = {
+    id: "empty", name: "Empty", tags: [], nodes: [], geometries: [], materials: [],
+    feedback: { status: "unreviewed", summary: "", annotations: [], modifications: [] },
+  };
+  await assert.rejects(
+    validateWebsite("https://project.example/app/", {
+      discoveryUrl,
+      fetch: async (url) => url === discoveryUrl
+        ? jsonResponse(url, { ...projectDiscovery, websiteUrl: "https://project.example/app/", assets: "./assets.json" })
+        : jsonResponse(url, { ...emptyAssets, assets: [emptyAsset] }),
+    }),
+    /must contain renderable geometry/,
   );
 });
 
