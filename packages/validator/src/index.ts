@@ -1,5 +1,6 @@
 import {
   ASSET_REVIEW_SCHEMA,
+  SCENE_ACTORS_SCHEMA,
   SPATIAL_REVIEW_ASSET_CANCEL,
   SPATIAL_REVIEW_ASSET_PROGRESS,
   SPATIAL_REVIEW_ASSET_REQUEST,
@@ -19,12 +20,14 @@ import {
   type SpatialReviewAssetStreamOffer,
   type SpatialReviewDiscovery,
   type SpatialReviewIndex,
+  type SpatialReviewScene,
   type SpatialReviewSourceStatusMessage,
 } from "@alterno-dev/spatial-review-protocol";
 
 export type ValidationResult<T> = { ok: true; value: T } | { ok: false; errors: string[] };
 const object = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value);
 const finiteVec3 = (value: unknown) => Array.isArray(value) && value.length === 3 && value.every((entry) => typeof entry === "number" && Number.isFinite(entry));
+const finiteVec2 = (value: unknown) => Array.isArray(value) && value.length === 2 && value.every((entry) => typeof entry === "number" && Number.isFinite(entry));
 
 const MAX_NAVIGATION_SEQUENCES = 200;
 const MAX_NAVIGATION_STOPS = 5_000;
@@ -34,9 +37,30 @@ const MAX_STREAM_REPRESENTATIONS = 32;
 const MAX_STREAM_ESTIMATED_BYTES = 1024 * 1024 * 1024;
 const MAX_INSTANCE_COUNT = 100_000;
 const MAX_REVISION_LENGTH = 200;
+const MAX_SCENE_ACTORS = 100_000;
+const MAX_ASSETS = 2_000;
+const MAX_ASSET_NODES = 100_000;
+const MAX_ASSET_MATERIALS = 20_000;
+const MAX_ASSET_GEOMETRIES = 100_000;
+const MAX_ASSET_GEOMETRY_VALUES = 16_000_000;
+const MAX_ASSET_HIERARCHY_DEPTH = 256;
+const MAX_ASSET_PRIMITIVE_SEGMENTS = 256;
+const MAX_ASSET_PRIMITIVE_DIMENSION = 1_000_000;
+const MAX_ASSET_ALLOCATION_BYTES = 192 * 1024 * 1024;
 
-const boundedId = (value: unknown, max = 500) => typeof value === "string" && value.length > 0 && value.length <= max;
+const boundedId = (value: unknown, max = 500) => typeof value === "string" && value.trim().length > 0 && value.length <= max;
+const boundedText = (value: unknown, max = 10_000) => typeof value === "string" && value.trim().length > 0 && value.length <= max;
 const nonNegativeInteger = (value: unknown, max = Number.MAX_SAFE_INTEGER) => typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= max;
+
+function finiteTransform(value: unknown) {
+  return object(value) && finiteVec3(value.position) && finiteVec3(value.rotation) && finiteVec3(value.scale)
+    && (value.scale as number[]).every((component) => Math.abs(component) >= 1e-8);
+}
+
+function finiteBounds(value: unknown) {
+  return object(value) && finiteVec3(value.center) && finiteVec3(value.size)
+    && (value.size as number[]).every((component) => component >= 0);
+}
 
 function enumerableDataEntries(value: object) {
   return Object.keys(value).map((key) => {
@@ -246,8 +270,332 @@ function validateNavigationSequence(sequence: unknown, index: number, errors: st
   return { stops: stops.length, segments: segments.length, points };
 }
 
+type AssetValidationBudget = { nodes: number; materials: number; geometries: number; geometryValues: number; instances: number; allocationBytes: number };
+
+function emptyAssetValidationBudget(): AssetValidationBudget {
+  return { nodes: 0, materials: 0, geometries: 0, geometryValues: 0, instances: 0, allocationBytes: 0 };
+}
+
+function finiteNumberSequence(value: unknown, typed: "float" | "index" = "float") {
+  const supported = Array.isArray(value)
+    || (typed === "float" && value instanceof Float32Array)
+    || (typed === "index" && (value instanceof Uint16Array || value instanceof Uint32Array));
+  if (!supported) return false;
+  for (let index = 0; index < (value as ArrayLike<unknown>).length; index += 1) {
+    if (Array.isArray(value) && !(index in value)) return false;
+    const entry = (value as ArrayLike<unknown>)[index];
+    if (typeof entry !== "number" || !Number.isFinite(entry)) return false;
+  }
+  return true;
+}
+
+function geometryErrors(value: unknown, label: string, budget: AssetValidationBudget) {
+  const errors: string[] = [];
+  if (!object(value)) return [`${label} must be a geometry object.`];
+  budget.geometries += 1;
+  if (value.kind === "primitive") {
+    if (!["box", "sphere", "cylinder"].includes(String(value.primitive))) errors.push(`${label}.primitive is not supported.`);
+    if (!finiteVec3(value.dimensions) || (value.dimensions as number[]).some((component) => component <= 0 || component > MAX_ASSET_PRIMITIVE_DIMENSION)) errors.push(`${label}.dimensions must contain three positive bounded finite values.`);
+    const validSegments = value.segments === undefined || (typeof value.segments === "number" && Number.isSafeInteger(value.segments)
+      && value.segments >= 3 && value.segments <= MAX_ASSET_PRIMITIVE_SEGMENTS);
+    if (!validSegments) errors.push(`${label}.segments must be an integer between 3 and ${MAX_ASSET_PRIMITIVE_SEGMENTS}.`);
+    const segments = validSegments && typeof value.segments === "number" ? value.segments : 32;
+    if (value.primitive === "sphere") {
+      const rows = Math.max(12, Math.round(segments * 0.62));
+      budget.allocationBytes += (segments + 1) * (rows + 1) * 32 + segments * Math.max(1, rows - 1) * 6 * 4;
+    } else if (value.primitive === "cylinder") budget.allocationBytes += (segments + 1) * 6 * 32 + segments * 18 * 4;
+    else budget.allocationBytes += 24 * 32 + 36 * 4;
+    return errors;
+  }
+  if (value.kind !== "mesh") return [`${label}.kind must be primitive or mesh.`];
+  const validPositions = finiteNumberSequence(value.positions);
+  if (!validPositions || (value.positions as ArrayLike<number>)?.length < 9 || (value.positions as ArrayLike<number>).length % 3 !== 0) errors.push(`${label}.positions must contain at least three finite XYZ vertices.`);
+  const positions = validPositions ? (value.positions as ArrayLike<number>).length : 0;
+  const vertices = positions / 3;
+  budget.geometryValues += positions;
+  budget.allocationBytes += positions * 4;
+  if (value.indices !== undefined) {
+    if (!finiteNumberSequence(value.indices, "index") || Array.prototype.some.call(value.indices, (entry: unknown) => !Number.isSafeInteger(entry) || (entry as number) < 0 || (entry as number) >= vertices)) errors.push(`${label}.indices must reference existing vertices with non-negative integers.`);
+    else { budget.geometryValues += (value.indices as ArrayLike<number>).length; budget.allocationBytes += (value.indices as ArrayLike<number>).length * 4; }
+  }
+  if (value.normals !== undefined) {
+    if (!finiteNumberSequence(value.normals) || (value.normals as ArrayLike<number>).length !== positions) errors.push(`${label}.normals must contain one finite XYZ normal per vertex.`);
+    else { budget.geometryValues += (value.normals as ArrayLike<number>).length; budget.allocationBytes += (value.normals as ArrayLike<number>).length * 4; }
+  }
+  if (value.uvs !== undefined) {
+    if (!finiteNumberSequence(value.uvs) || (value.uvs as ArrayLike<number>).length !== vertices * 2) errors.push(`${label}.uvs must contain one finite UV pair per vertex.`);
+    else { budget.geometryValues += (value.uvs as ArrayLike<number>).length; budget.allocationBytes += (value.uvs as ArrayLike<number>).length * 4; }
+  }
+  if (value.groups !== undefined) {
+    if (!Array.isArray(value.groups)) errors.push(`${label}.groups must be an array when present.`);
+    else value.groups.forEach((group, index) => {
+      if (!object(group) || !nonNegativeInteger(group.start) || !nonNegativeInteger(group.count) || !nonNegativeInteger(group.materialIndex, MAX_ASSET_MATERIALS)) errors.push(`${label}.groups[${index}] must contain bounded start, count, and materialIndex integers.`);
+    });
+  }
+  return errors;
+}
+
+function materialErrors(value: unknown, label: string) {
+  const errors: string[] = [];
+  if (!object(value)) return [`${label} must be a material object.`];
+  if (!boundedId(value.id)) errors.push(`${label}.id must be a bounded non-empty identifier.`);
+  if (!boundedText(value.name, 2_000)) errors.push(`${label}.name must be a bounded non-empty string.`);
+  if (!["standard", "basic", "phong", "unknown"].includes(String(value.type))) errors.push(`${label}.type is not supported.`);
+  if (typeof value.color !== "string" || value.color.length > 200) errors.push(`${label}.color must be a bounded string.`);
+  if (value.emissive !== undefined && (typeof value.emissive !== "string" || value.emissive.length > 200)) errors.push(`${label}.emissive must be a bounded string when present.`);
+  for (const field of ["roughness", "metalness"] as const) if (value[field] !== undefined && (typeof value[field] !== "number" || !Number.isFinite(value[field]) || value[field] < 0 || value[field] > 1)) errors.push(`${label}.${field} must be between zero and one.`);
+  if (typeof value.opacity !== "number" || !Number.isFinite(value.opacity) || value.opacity < 0 || value.opacity > 1) errors.push(`${label}.opacity must be between zero and one.`);
+  if (typeof value.doubleSided !== "boolean") errors.push(`${label}.doubleSided must be boolean.`);
+  if (value.wireframe !== undefined && typeof value.wireframe !== "boolean") errors.push(`${label}.wireframe must be boolean when present.`);
+  if (value.maps !== undefined) {
+    if (!Array.isArray(value.maps) || value.maps.length > 32) errors.push(`${label}.maps must contain at most 32 entries.`);
+    else value.maps.forEach((map, index) => {
+      const mapLabel = `${label}.maps[${index}]`;
+      if (!object(map)) { errors.push(`${mapLabel} must be an object.`); return; }
+      if (!boundedId(map.slot, 200)) errors.push(`${mapLabel}.slot must be a bounded non-empty identifier.`);
+      for (const field of ["name", "sourceRef", "resourceId"] as const) if (map[field] !== undefined && !boundedId(map[field], field === "name" ? 2_000 : 10_000)) errors.push(`${mapLabel}.${field} is invalid.`);
+      if (map.wrap !== undefined && map.wrap !== "clamp" && map.wrap !== "repeat") errors.push(`${mapLabel}.wrap must be clamp or repeat.`);
+      if (map.repeat !== undefined && !finiteVec2(map.repeat)) errors.push(`${mapLabel}.repeat must be a finite UV pair.`);
+      if (map.offset !== undefined && !finiteVec2(map.offset)) errors.push(`${mapLabel}.offset must be a finite UV pair.`);
+      if (map.rotation !== undefined && (typeof map.rotation !== "number" || !Number.isFinite(map.rotation))) errors.push(`${mapLabel}.rotation must be finite.`);
+      if (map.flipY !== undefined && typeof map.flipY !== "boolean") errors.push(`${mapLabel}.flipY must be boolean.`);
+    });
+  }
+  return errors;
+}
+
+function feedbackNodeErrors(value: unknown, label: string, budget: AssetValidationBudget) {
+  const errors: string[] = [];
+  if (!object(value)) return [`${label} must be a node object.`];
+  if (!boundedId(value.id) || !boundedText(value.name, 2_000) || !["group", "mesh", "line", "points"].includes(String(value.type))) errors.push(`${label} requires valid id, name, and type fields.`);
+  if (value.parentId !== undefined && !boundedId(value.parentId)) errors.push(`${label}.parentId is invalid.`);
+  if (!finiteVec3(value.position) || !finiteVec3(value.rotation) || !finiteVec3(value.scale)
+    || (finiteVec3(value.scale) && (value.scale as number[]).some((component) => Math.abs(component) < 1e-8))) errors.push(`${label} transform is invalid.`);
+  if (typeof value.visible !== "boolean" || !Array.isArray(value.materialIds) || value.materialIds.some((id) => !boundedId(id))) errors.push(`${label} requires visible and materialIds fields.`);
+  if (value.geometry !== undefined && value.geometryId !== undefined) errors.push(`${label} must use only one geometry encoding.`);
+  if (value.geometry !== undefined) errors.push(...geometryErrors(value.geometry, `${label}.geometry`, budget));
+  if (value.geometryId !== undefined && !boundedId(value.geometryId)) errors.push(`${label}.geometryId is invalid.`);
+  if (value.sourceRef !== undefined && !boundedId(value.sourceRef, 10_000)) errors.push(`${label}.sourceRef is invalid.`);
+  if (value.instances !== undefined && value.instanceData !== undefined) errors.push(`${label} must use only one instance encoding.`);
+  if (value.instances !== undefined) {
+    if (!Array.isArray(value.instances) || value.instances.length > MAX_INSTANCE_COUNT
+      || value.instances.some((matrix) => !Array.isArray(matrix) || matrix.length !== 16 || matrix.some((entry) => typeof entry !== "number" || !Number.isFinite(entry)))) errors.push(`${label}.instances is invalid.`);
+    else { budget.instances += value.instances.length; budget.allocationBytes += value.instances.length * 16 * 4; }
+  }
+  if (value.instanceData !== undefined) {
+    errors.push(...assetInstanceErrors(value.instanceData, 64 * 1024 * 1024, `${label}.instanceData`));
+    if (object(value.instanceData) && nonNegativeInteger(value.instanceData.count, MAX_INSTANCE_COUNT)) {
+      budget.instances += value.instanceData.count as number;
+      budget.allocationBytes += (value.instanceData.transforms instanceof Float32Array ? value.instanceData.transforms.byteLength : 0)
+        + (value.instanceData.colors instanceof Float32Array || value.instanceData.colors instanceof Uint8Array ? value.instanceData.colors.byteLength : 0)
+        + (value.instanceData.stableIds instanceof Uint32Array ? value.instanceData.stableIds.byteLength : 0);
+    }
+  }
+  budget.nodes += 1;
+  return errors;
+}
+
+function assetFeedbackErrors(value: unknown, label: string, budget: AssetValidationBudget) {
+  const errors: string[] = [];
+  if (!object(value)) return [`${label} must be a feedback object.`];
+  if (!["unreviewed", "needs-change", "question", "approved"].includes(String(value.status))) errors.push(`${label}.status is invalid.`);
+  if (typeof value.summary !== "string" || value.summary.length > 100_000) errors.push(`${label}.summary must be a bounded string.`);
+  if (!Array.isArray(value.annotations) || value.annotations.length > 100_000) errors.push(`${label}.annotations must be a bounded array.`);
+  else value.annotations.forEach((annotation, index) => {
+    const annotationLabel = `${label}.annotations[${index}]`;
+    if (!object(annotation)) { errors.push(`${annotationLabel} must be an object.`); return; }
+    if (!boundedId(annotation.id) || typeof annotation.body !== "string" || annotation.body.length > 100_000 || !boundedText(annotation.category, 2_000)) errors.push(`${annotationLabel} requires bounded id, body, and category fields.`);
+    if (!["low", "medium", "high", "blocker"].includes(String(annotation.priority))) errors.push(`${annotationLabel}.priority is invalid.`);
+    if (!object(annotation.target) || !["asset", "component", "geometry", "material"].includes(String(annotation.target.scope))) errors.push(`${annotationLabel}.target is invalid.`);
+    else for (const field of ["nodeId", "materialId"] as const) if (annotation.target[field] !== undefined && !boundedId(annotation.target[field])) errors.push(`${annotationLabel}.target.${field} is invalid.`);
+    if (annotation.anchor !== undefined) {
+      if (!object(annotation.anchor) || !boundedId(annotation.anchor.nodeId) || !finiteVec3(annotation.anchor.localPosition)
+        || (annotation.anchor.instanceId !== undefined && !nonNegativeInteger(annotation.anchor.instanceId, 0xffff_ffff))
+        || (annotation.anchor.localNormal !== undefined && !finiteVec3(annotation.anchor.localNormal))
+        || (annotation.anchor.uv !== undefined && !finiteVec2(annotation.anchor.uv))) errors.push(`${annotationLabel}.anchor is invalid.`);
+    }
+    if (!boundedText(annotation.createdAt, 2_000) || typeof annotation.resolved !== "boolean") errors.push(`${annotationLabel} requires createdAt and resolved fields.`);
+    if (annotation.author !== undefined && (typeof annotation.author !== "string" || annotation.author.length > 2_000)) errors.push(`${annotationLabel}.author must be a bounded string.`);
+  });
+  if (!Array.isArray(value.modifications) || value.modifications.length > 100_000) errors.push(`${label}.modifications must be a bounded array.`);
+  else value.modifications.forEach((modification, index) => {
+    const modificationLabel = `${label}.modifications[${index}]`;
+    if (!object(modification) || !boundedId(modification.id) || !["transform", "delete", "add"].includes(String(modification.action))) { errors.push(`${modificationLabel} is invalid.`); return; }
+    if (modification.action === "add") {
+      errors.push(...feedbackNodeErrors(modification.node, `${modificationLabel}.node`, budget));
+      if (modification.material !== undefined) { errors.push(...materialErrors(modification.material, `${modificationLabel}.material`)); budget.materials += 1; }
+      return;
+    }
+    const part = modification.part;
+    if (!object(part) || !boundedId(part.id) || !boundedText(part.name, 2_000) || (part.sourceRef !== undefined && !boundedId(part.sourceRef, 10_000))) errors.push(`${modificationLabel}.part is invalid.`);
+    if (modification.action === "transform" && (!finiteTransform(modification.before) || !finiteTransform(modification.after))) errors.push(`${modificationLabel} requires valid before and after transforms.`);
+    if (modification.action === "delete" && modification.removedNodes !== undefined) {
+      if (!Array.isArray(modification.removedNodes) || modification.removedNodes.length > MAX_ASSET_NODES) errors.push(`${modificationLabel}.removedNodes must be a bounded array.`);
+      else modification.removedNodes.forEach((removed, removedIndex) => {
+        if (!object(removed) || !nonNegativeInteger(removed.index, MAX_ASSET_NODES)) errors.push(`${modificationLabel}.removedNodes[${removedIndex}] is invalid.`);
+        else errors.push(...feedbackNodeErrors(removed.node, `${modificationLabel}.removedNodes[${removedIndex}].node`, budget));
+      });
+    }
+  });
+  return errors;
+}
+
+function assetHierarchyErrors(nodes: Record<string, unknown>[], label: string) {
+  const errors: string[] = [];
+  const ids = new Set<string>();
+  const parents = new Map<string, string | undefined>();
+  nodes.forEach((node, index) => {
+    if (!boundedId(node.id)) return;
+    const id = node.id as string;
+    if (ids.has(id)) errors.push(`${label} contains duplicate node id "${id}".`);
+    ids.add(id);
+    parents.set(id, typeof node.parentId === "string" ? node.parentId : undefined);
+    if (node.parentId !== undefined && !boundedId(node.parentId)) errors.push(`${label}[${index}].parentId must be a bounded non-empty identifier.`);
+  });
+  parents.forEach((parent, id) => { if (parent && !ids.has(parent)) errors.push(`${label} node "${id}" references missing parent "${parent}".`); });
+  const depths = new Map<string, number>();
+  for (const id of ids) {
+    const path: string[] = [];
+    const active = new Set<string>();
+    let current: string | undefined = id;
+    while (current && ids.has(current) && !depths.has(current)) {
+      if (active.has(current)) { errors.push(`${label} contains a node hierarchy cycle at "${current}".`); current = undefined; break; }
+      active.add(current); path.push(current); current = parents.get(current);
+    }
+    let depth = current && depths.has(current) ? depths.get(current)! : 0;
+    for (let index = path.length - 1; index >= 0; index -= 1) {
+      depth += 1;
+      if (depth > MAX_ASSET_HIERARCHY_DEPTH) { errors.push(`${label} exceeds the maximum hierarchy depth of ${MAX_ASSET_HIERARCHY_DEPTH}.`); break; }
+      depths.set(path[index], depth);
+    }
+  }
+  return errors;
+}
+
+function reviewAssetErrors(value: unknown, label: string, budget: AssetValidationBudget, instanceMaxBytes = 64 * 1024 * 1024) {
+  const errors: string[] = [];
+  if (!object(value)) return [`${label} must be an object.`];
+  if (!boundedId(value.id)) errors.push(`${label}.id must be a bounded non-empty identifier.`);
+  if (!boundedText(value.name, 2_000)) errors.push(`${label}.name must be a bounded non-empty string.`);
+  for (const field of ["sourceRef", "category"] as const) if (value[field] !== undefined && !boundedId(value[field], 10_000)) errors.push(`${label}.${field} is invalid.`);
+  if (!Array.isArray(value.tags) || value.tags.length > 1_000 || value.tags.some((tag) => typeof tag !== "string" || tag.length > 2_000)) errors.push(`${label}.tags must contain bounded strings.`);
+  if (value.sourceTransform !== undefined && !finiteTransform(value.sourceTransform)) errors.push(`${label}.sourceTransform must be finite and invertible.`);
+  if (value.animations !== undefined && (!Array.isArray(value.animations) || value.animations.some((animation) => !boundedId(animation, 2_000)))) errors.push(`${label}.animations must contain bounded identifiers.`);
+  if (value.stream !== undefined) errors.push(...assetStreamErrors(value.stream, `${label}.stream`));
+
+  const geometries = value.geometries === undefined ? [] : Array.isArray(value.geometries) ? value.geometries : undefined;
+  if (!geometries) errors.push(`${label}.geometries must be an array when present.`);
+  const geometryIds = new Set<string>();
+  (geometries ?? []).forEach((definition, index) => {
+    const geometryLabel = `${label}.geometries[${index}]`;
+    if (!object(definition)) { errors.push(`${geometryLabel} must be an object.`); return; }
+    if (!boundedId(definition.id)) errors.push(`${geometryLabel}.id must be a bounded non-empty identifier.`);
+    else if (geometryIds.has(definition.id as string)) errors.push(`${label}.geometries contains duplicate id "${definition.id}".`);
+    else geometryIds.add(definition.id as string);
+    if (definition.name !== undefined && !boundedText(definition.name, 2_000)) errors.push(`${geometryLabel}.name must be bounded and non-empty when present.`);
+    errors.push(...geometryErrors(definition.geometry, `${geometryLabel}.geometry`, budget));
+  });
+
+  const materials = Array.isArray(value.materials) ? value.materials : undefined;
+  if (!materials) errors.push(`${label}.materials must be an array.`);
+  const materialIds = new Set<string>();
+  (materials ?? []).forEach((material, index) => {
+    errors.push(...materialErrors(material, `${label}.materials[${index}]`));
+    if (object(material) && boundedId(material.id)) {
+      if (materialIds.has(material.id as string)) errors.push(`${label}.materials contains duplicate id "${material.id}".`);
+      else materialIds.add(material.id as string);
+    }
+  });
+
+  const nodes = Array.isArray(value.nodes) ? value.nodes : undefined;
+  if (!nodes) errors.push(`${label}.nodes must be an array.`);
+  const nodeRecords = (nodes ?? []).filter(object);
+  (nodes ?? []).forEach((node, index) => {
+    const nodeLabel = `${label}.nodes[${index}]`;
+    if (!object(node)) { errors.push(`${nodeLabel} must be an object.`); return; }
+    if (!boundedId(node.id)) errors.push(`${nodeLabel}.id must be a bounded non-empty identifier.`);
+    if (!boundedText(node.name, 2_000)) errors.push(`${nodeLabel}.name must be a bounded non-empty string.`);
+    if (!["group", "mesh", "line", "points"].includes(String(node.type))) errors.push(`${nodeLabel}.type is not supported.`);
+    if (!finiteVec3(node.position) || !finiteVec3(node.rotation) || !finiteVec3(node.scale) || (finiteVec3(node.scale) && (node.scale as number[]).some((component) => Math.abs(component) < 1e-8))) errors.push(`${nodeLabel} transform must contain finite position/rotation and invertible scale vectors.`);
+    if (typeof node.visible !== "boolean") errors.push(`${nodeLabel}.visible must be boolean.`);
+    if (node.geometry !== undefined && node.geometryId !== undefined) errors.push(`${nodeLabel} must use only one geometry encoding.`);
+    if (node.geometry !== undefined) errors.push(...geometryErrors(node.geometry, `${nodeLabel}.geometry`, budget));
+    if (node.geometryId !== undefined && (!boundedId(node.geometryId) || !geometryIds.has(node.geometryId as string))) errors.push(`${nodeLabel}.geometryId must reference a declared geometry.`);
+    if (!Array.isArray(node.materialIds) || node.materialIds.some((id) => !boundedId(id) || !materialIds.has(id))) errors.push(`${nodeLabel}.materialIds must reference declared materials.`);
+    if (node.sourceRef !== undefined && !boundedId(node.sourceRef, 10_000)) errors.push(`${nodeLabel}.sourceRef is invalid.`);
+    if (node.instances !== undefined && node.instanceData !== undefined) errors.push(`${nodeLabel} must use only one instance encoding.`);
+    if (node.instances !== undefined) {
+      if (!Array.isArray(node.instances) || node.instances.length > MAX_INSTANCE_COUNT || node.instances.some((matrix) => !Array.isArray(matrix) || matrix.length !== 16 || matrix.some((entry) => typeof entry !== "number" || !Number.isFinite(entry)))) errors.push(`${nodeLabel}.instances must contain at most ${MAX_INSTANCE_COUNT} finite 4x4 matrices.`);
+      else { budget.instances += node.instances.length; budget.allocationBytes += node.instances.length * 16 * 4; }
+    }
+    if (node.instanceData !== undefined) {
+      errors.push(...assetInstanceErrors(node.instanceData, instanceMaxBytes, `${nodeLabel}.instanceData`));
+      if (object(node.instanceData) && nonNegativeInteger(node.instanceData.count, MAX_INSTANCE_COUNT)) {
+        budget.instances += node.instanceData.count as number;
+        budget.allocationBytes += (node.instanceData.transforms instanceof Float32Array ? node.instanceData.transforms.byteLength : 0)
+          + (node.instanceData.colors instanceof Float32Array || node.instanceData.colors instanceof Uint8Array ? node.instanceData.colors.byteLength : 0)
+          + (node.instanceData.stableIds instanceof Uint32Array ? node.instanceData.stableIds.byteLength : 0);
+      }
+    }
+  });
+  errors.push(...assetHierarchyErrors(nodeRecords, `${label}.nodes`));
+  errors.push(...assetFeedbackErrors(value.feedback, `${label}.feedback`, budget));
+
+  budget.nodes += nodes?.length ?? 0;
+  budget.materials += materials?.length ?? 0;
+  return errors;
+}
+
+function sceneDocumentErrors(value: unknown) {
+  const errors: string[] = [];
+  if (!object(value)) return ["Scene document must be an object."];
+  if (value.schema !== SCENE_ACTORS_SCHEMA) errors.push(`scene.schema must be ${SCENE_ACTORS_SCHEMA}.`);
+  if (!Array.isArray(value.actors)) errors.push("scene.actors must be an array.");
+  else {
+    if (value.actors.length > MAX_SCENE_ACTORS) errors.push(`scene.actors exceeds the ${MAX_SCENE_ACTORS} item safety limit.`);
+    const actorIds = new Set<string>();
+    value.actors.forEach((actor, index) => {
+      const label = `scene.actors[${index}]`;
+      if (!object(actor)) { errors.push(`${label} must be an object.`); return; }
+      if (!boundedId(actor.actorId)) errors.push(`${label}.actorId must be a bounded non-empty identifier.`);
+      else if (actorIds.has(actor.actorId as string)) errors.push(`scene.actors contains duplicate actorId "${actor.actorId}".`);
+      else actorIds.add(actor.actorId as string);
+      if (!boundedId(actor.assetId) || !boundedText(actor.name, 2_000) || !boundedId(actor.sourceRef, 10_000) || !boundedText(actor.category, 2_000)) errors.push(`${label} requires bounded assetId, name, sourceRef, and category fields.`);
+      if (!finiteTransform(actor.transform)) errors.push(`${label}.transform must be finite and invertible.`);
+      if (!finiteBounds(actor.bounds)) errors.push(`${label}.bounds must contain finite center and non-negative size vectors.`);
+      if (actor.visible !== undefined && typeof actor.visible !== "boolean") errors.push(`${label}.visible must be boolean when present.`);
+    });
+  }
+  errors.push(...validateSceneOwnership(value));
+  if (value.navigationSequences !== undefined) {
+    if (!Array.isArray(value.navigationSequences)) errors.push("scene.navigationSequences must be an array when present.");
+    else {
+      if (value.navigationSequences.length > MAX_NAVIGATION_SEQUENCES) errors.push(`scene.navigationSequences exceeds the ${MAX_NAVIGATION_SEQUENCES} item safety limit.`);
+      let stops = 0; let segments = 0; let points = 0;
+      const sequenceIds = new Set<string>();
+      value.navigationSequences.forEach((sequence, index) => {
+        if (object(sequence) && typeof sequence.id === "string") {
+          if (sequenceIds.has(sequence.id)) errors.push(`scene.navigationSequences contains duplicate id "${sequence.id}".`);
+          else sequenceIds.add(sequence.id);
+        }
+        const counts = validateNavigationSequence(sequence, index, errors);
+        stops += counts.stops; segments += counts.segments; points += counts.points;
+      });
+      if (stops > MAX_NAVIGATION_STOPS) errors.push(`navigation stops exceed the ${MAX_NAVIGATION_STOPS} item safety limit.`);
+      if (segments > MAX_NAVIGATION_SEGMENTS) errors.push(`navigation segments exceed the ${MAX_NAVIGATION_SEGMENTS} item safety limit.`);
+      if (points > MAX_NAVIGATION_POINTS) errors.push(`navigation curve points exceed the ${MAX_NAVIGATION_POINTS} item safety limit.`);
+    }
+  }
+  return errors;
+}
+
 export function validateDiscovery(value: unknown, url: string): ValidationResult<SpatialReviewDiscovery> {
   try { return { ok: true, value: normalizeSpatialReviewDiscovery(value, url) }; } catch (error) { return { ok: false, errors: [error instanceof Error ? error.message : "Invalid discovery document"] }; }
+}
+
+export function validateSceneDocument(value: unknown): ValidationResult<SpatialReviewScene> {
+  const errors = sceneDocumentErrors(value);
+  return errors.length ? { ok: false, errors } : { ok: true, value: value as SpatialReviewScene };
 }
 
 export function validateAssetDocument(value: unknown): ValidationResult<AssetReviewDocument3D> {
@@ -255,18 +603,33 @@ export function validateAssetDocument(value: unknown): ValidationResult<AssetRev
   if (!object(value)) errors.push("Asset document must be an object.");
   else {
     if (value.schema !== ASSET_REVIEW_SCHEMA) errors.push(`schema must be ${ASSET_REVIEW_SCHEMA}.`);
+    if (!boundedId(value.id) || !boundedText(value.name, 2_000)) errors.push("id and name must be bounded non-empty strings.");
+    if (value.units !== "m") errors.push("units must be m.");
+    if (value.source !== undefined) {
+      if (!object(value.source)) errors.push("source must be an object when present.");
+      else for (const field of ["label", "url", "importedAt", "generator"] as const) {
+        if (value.source[field] !== undefined && (typeof value.source[field] !== "string" || value.source[field].length > 10_000)) errors.push(`source.${field} must be a bounded string when present.`);
+      }
+    }
     if (!Array.isArray(value.assets)) errors.push("assets must be an array.");
-    else if (value.assets.length > 2_000) errors.push("assets exceeds the 2,000 item safety limit.");
-    else value.assets.forEach((asset, assetIndex) => {
-      if (!object(asset)) { errors.push(`assets[${assetIndex}] must be an object.`); return; }
-      if (asset.stream !== undefined) errors.push(...assetStreamErrors(asset.stream, `assets[${assetIndex}].stream`));
-      if (!Array.isArray(asset.nodes)) return;
-      asset.nodes.forEach((node, nodeIndex) => {
-        if (!object(node)) return;
-        if (node.instances !== undefined && node.instanceData !== undefined) errors.push(`assets[${assetIndex}].nodes[${nodeIndex}] must use only one instance encoding.`);
-        if (node.instanceData !== undefined) errors.push(...assetInstanceErrors(node.instanceData, 64 * 1024 * 1024, `assets[${assetIndex}].nodes[${nodeIndex}].instanceData`));
+    else if (value.assets.length > MAX_ASSETS) errors.push(`assets exceeds the ${MAX_ASSETS} item safety limit.`);
+    else {
+      const ids = new Set<string>();
+      const budget = emptyAssetValidationBudget();
+      value.assets.forEach((asset, assetIndex) => {
+        errors.push(...reviewAssetErrors(asset, `assets[${assetIndex}]`, budget));
+        if (object(asset) && boundedId(asset.id)) {
+          if (ids.has(asset.id as string)) errors.push(`assets contains duplicate id "${asset.id}".`);
+          else ids.add(asset.id as string);
+        }
       });
-    });
+      if (budget.nodes > MAX_ASSET_NODES) errors.push(`asset nodes exceed the ${MAX_ASSET_NODES} item safety limit.`);
+      if (budget.materials > MAX_ASSET_MATERIALS) errors.push(`asset materials exceed the ${MAX_ASSET_MATERIALS} item safety limit.`);
+      if (budget.geometries > MAX_ASSET_GEOMETRIES) errors.push(`asset geometries exceed the ${MAX_ASSET_GEOMETRIES} item safety limit.`);
+      if (budget.geometryValues > MAX_ASSET_GEOMETRY_VALUES) errors.push(`asset geometry values exceed the ${MAX_ASSET_GEOMETRY_VALUES} item safety limit.`);
+      if (budget.instances > MAX_INSTANCE_COUNT) errors.push(`asset instances exceed the ${MAX_INSTANCE_COUNT} item safety limit.`);
+      if (budget.allocationBytes > MAX_ASSET_ALLOCATION_BYTES) errors.push(`asset render allocations exceed the ${MAX_ASSET_ALLOCATION_BYTES}-byte safety limit.`);
+    }
   }
   return errors.length ? { ok: false, errors } : { ok: true, value: value as AssetReviewDocument3D };
 }
@@ -276,36 +639,20 @@ export function validateReviewIndex(value: unknown): ValidationResult<SpatialRev
   if (!object(value)) errors.push("Review index must be an object.");
   else {
     if (value.schema !== SPATIAL_REVIEW_INDEX_SCHEMA) errors.push(`schema must be ${SPATIAL_REVIEW_INDEX_SCHEMA}.`);
-    if (object(value.scene)) errors.push(...validateSceneOwnership(value.scene));
-    if (!object(value.scene) || !Array.isArray(value.scene.actors)) errors.push("scene.actors must be an array.");
-    else if (value.scene.navigationSequences !== undefined) {
-      if (!Array.isArray(value.scene.navigationSequences)) errors.push("scene.navigationSequences must be an array when present.");
-      else {
-        if (value.scene.navigationSequences.length > MAX_NAVIGATION_SEQUENCES) errors.push(`scene.navigationSequences exceeds the ${MAX_NAVIGATION_SEQUENCES} item safety limit.`);
-        let stops = 0;
-        let segments = 0;
-        let points = 0;
-        const sequenceIds = new Set<string>();
-        value.scene.navigationSequences.forEach((sequence, index) => {
-          if (object(sequence) && typeof sequence.id === "string") {
-            if (sequenceIds.has(sequence.id)) errors.push(`scene.navigationSequences contains duplicate id "${sequence.id}".`);
-            else sequenceIds.add(sequence.id);
-          }
-          const counts = validateNavigationSequence(sequence, index, errors);
-          stops += counts.stops;
-          segments += counts.segments;
-          points += counts.points;
-        });
-        if (stops > MAX_NAVIGATION_STOPS) errors.push(`navigation stops exceed the ${MAX_NAVIGATION_STOPS} item safety limit.`);
-        if (segments > MAX_NAVIGATION_SEGMENTS) errors.push(`navigation segments exceed the ${MAX_NAVIGATION_SEGMENTS} item safety limit.`);
-        if (points > MAX_NAVIGATION_POINTS) errors.push(`navigation curve points exceed the ${MAX_NAVIGATION_POINTS} item safety limit.`);
-      }
-    }
+    if (!boundedId(value.buildId, 200)) errors.push("buildId must be a bounded non-empty identifier.");
+    if (!boundedText(value.generatedAt, 2_000)) errors.push("generatedAt must be a bounded non-empty string.");
+    errors.push(...sceneDocumentErrors(value.scene));
     const assets = object(value.assetCatalog) ? value.assetCatalog.assets : undefined;
     if (!Array.isArray(assets)) errors.push("assetCatalog.assets must be an array.");
     else {
       const assetResult = validateAssetDocument(value.assetCatalog);
       if (!assetResult.ok) errors.push(...assetResult.errors.map((error) => `assetCatalog.${error}`));
+      else if (object(value.scene) && Array.isArray(value.scene.actors)) {
+        const assetIds = new Set(assetResult.value.assets.map((asset) => asset.id));
+        value.scene.actors.forEach((actor, index) => {
+          if (object(actor) && typeof actor.assetId === "string" && !assetIds.has(actor.assetId)) errors.push(`scene.actors[${index}].assetId does not reference assetCatalog.`);
+        });
+      }
     }
   }
   return errors.length ? { ok: false, errors } : { ok: true, value: value as SpatialReviewIndex };
@@ -352,12 +699,11 @@ export function validateSpatialReviewAssetResponse(value: unknown, maxBytes = 64
         try { measureSpatialReviewTransferBytes(asset, maxBytes); }
         catch (error) { errors.push(error instanceof Error ? error.message : "asset exceeds the negotiated transfer budget."); }
         if (asset.id !== value.assetId) errors.push("asset.id must match assetId.");
-        if (asset.stream !== undefined) errors.push(...assetStreamErrors(asset.stream, "asset.stream"));
-        if (Array.isArray(asset.nodes)) asset.nodes.forEach((node, index) => {
-          if (!object(node)) return;
-          if (node.instances !== undefined && node.instanceData !== undefined) errors.push(`asset.nodes[${index}] must use only one instance encoding.`);
-          if (node.instanceData !== undefined) errors.push(...assetInstanceErrors(node.instanceData, maxBytes, `asset.nodes[${index}].instanceData`));
-        });
+        const budget = emptyAssetValidationBudget();
+        errors.push(...reviewAssetErrors(asset, "asset", budget, maxBytes));
+        if (budget.nodes > MAX_ASSET_NODES || budget.materials > MAX_ASSET_MATERIALS || budget.geometries > MAX_ASSET_GEOMETRIES
+          || budget.geometryValues > MAX_ASSET_GEOMETRY_VALUES || budget.instances > MAX_INSTANCE_COUNT
+          || budget.allocationBytes > MAX_ASSET_ALLOCATION_BYTES) errors.push("asset exceeds structural safety limits.");
       }
     } else if (value.ok === false) {
       if (!["not-found", "too-large", "unavailable", "busy", "cancelled"].includes(String(value.error))) errors.push("error is invalid.");

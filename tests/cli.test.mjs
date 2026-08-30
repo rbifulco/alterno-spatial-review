@@ -19,6 +19,9 @@ const projectDiscovery = {
   liveCapture: "../?spatial-review-capture=1",
 };
 
+const emptyScene = { schema: "scene-actors/v1", actors: [] };
+const emptyAssets = { schema: "asset-review-3d/v1", id: "assets", name: "Assets", units: "m", assets: [] };
+
 test("CLI discovery falls back from the canonical root to a project manifest", async () => {
   const calls = [];
   const resolved = await resolveWebsiteDiscovery("https://owner.github.io/project/", {
@@ -86,5 +89,113 @@ test("CLI rejects discovery redirects that escape the website origin", async () 
       fetch: async (url) => jsonResponse("https://cdn.example/custom.json", projectDiscovery),
     }),
     /redirected outside https:\/\/project\.example/,
+  );
+});
+
+test("CLI binds an advertised website to the origin being validated", async () => {
+  await assert.rejects(
+    resolveWebsiteDiscovery("https://project.example/app/", {
+      discoveryUrl: "https://project.example/discovery.json",
+      fetch: async (url) => jsonResponse(url, { ...projectDiscovery, websiteUrl: "http://127.0.0.1:8080/" }),
+    }),
+    /websiteUrl must remain on https:\/\/project\.example/,
+  );
+});
+
+test("CLI refuses cross-origin advertised documents before fetching them", async () => {
+  const discoveryUrl = "https://project.example/discovery.json";
+  const calls = [];
+  await assert.rejects(
+    validateWebsite("https://project.example/app/", {
+      discoveryUrl,
+      fetch: async (url) => {
+        calls.push(url);
+        if (url === discoveryUrl) return jsonResponse(url, { ...projectDiscovery, websiteUrl: "https://project.example/app/", scene: "http://127.0.0.1:9000/scene.json" });
+        assert.fail(`unexpected fetch of ${url}`);
+      },
+    }),
+    /origin http:\/\/127\.0\.0\.1:9000 is not trusted/,
+  );
+  assert.deepEqual(calls, [discoveryUrl]);
+});
+
+test("CLI checks each static-document redirect before following it", async () => {
+  const discoveryUrl = "https://project.example/discovery.json";
+  const sceneUrl = "https://project.example/scene.json";
+  const calls = [];
+  await assert.rejects(
+    validateWebsite("https://project.example/app/", {
+      discoveryUrl,
+      fetch: async (url) => {
+        calls.push(url);
+        if (url === discoveryUrl) return jsonResponse(url, { ...projectDiscovery, websiteUrl: "https://project.example/app/", scene: sceneUrl });
+        if (url === sceneUrl) {
+          const response = new Response(null, { status: 302, headers: { location: "http://169.254.169.254/latest/meta-data" } });
+          Object.defineProperty(response, "url", { value: sceneUrl });
+          return response;
+        }
+        assert.fail(`unexpected fetch of ${url}`);
+      },
+    }),
+    /origin http:\/\/169\.254\.169\.254 is not trusted/,
+  );
+  assert.deepEqual(calls, [discoveryUrl, sceneUrl]);
+});
+
+test("CLI supports explicit CDN origins without weakening redirect checks", async () => {
+  const discoveryUrl = "https://project.example/discovery.json";
+  const assetsUrl = "https://assets.example/catalog.json";
+  const output = await validateWebsite("https://project.example/app/", {
+    discoveryUrl,
+    allowedDocumentOrigins: ["https://assets.example"],
+    fetch: async (url) => url === discoveryUrl
+      ? jsonResponse(url, { ...projectDiscovery, websiteUrl: "https://project.example/app/", assets: assetsUrl })
+      : jsonResponse(url, emptyAssets),
+  });
+  assert.match(output, /Assets: yes/);
+});
+
+test("CLI validates scene documents instead of only downloading them", async () => {
+  const discoveryUrl = "https://project.example/discovery.json";
+  await assert.rejects(
+    validateWebsite("https://project.example/app/", {
+      discoveryUrl,
+      fetch: async (url) => url === discoveryUrl
+        ? jsonResponse(url, { ...projectDiscovery, websiteUrl: "https://project.example/app/", scene: "./scene.json" })
+        : jsonResponse(url, { ...emptyScene, actors: [{}] }),
+    }),
+    /actorId.*assetId|requires bounded assetId/,
+  );
+});
+
+test("CLI rejects incomplete asset records and malformed render structure", async () => {
+  const discoveryUrl = "https://project.example/discovery.json";
+  await assert.rejects(
+    validateWebsite("https://project.example/app/", {
+      discoveryUrl,
+      fetch: async (url) => url === discoveryUrl
+        ? jsonResponse(url, { ...projectDiscovery, websiteUrl: "https://project.example/app/", assets: "./assets.json" })
+        : jsonResponse(url, { ...emptyAssets, assets: [{}] }),
+    }),
+    /assets\[0\].*(id|nodes|materials|feedback)/,
+  );
+});
+
+test("CLI verifies actor asset references when both static documents are advertised", async () => {
+  const discoveryUrl = "https://project.example/discovery.json";
+  const scene = { ...emptyScene, actors: [{
+    actorId: "actor", assetId: "missing", name: "Actor", sourceRef: "fixture#actor", category: "Fixture",
+    transform: { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
+    bounds: { center: [0, 0, 0], size: [1, 1, 1] },
+  }] };
+  await assert.rejects(
+    validateWebsite("https://project.example/app/", {
+      discoveryUrl,
+      fetch: async (url) => {
+        if (url === discoveryUrl) return jsonResponse(url, { ...projectDiscovery, websiteUrl: "https://project.example/app/", scene: "./scene.json", assets: "./assets.json" });
+        return jsonResponse(url, url.endsWith("scene.json") ? scene : emptyAssets);
+      },
+    }),
+    /assets missing from the advertised catalog: missing/,
   );
 });

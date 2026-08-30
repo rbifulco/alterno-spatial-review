@@ -4,7 +4,7 @@ import test from "node:test";
 import * as THREE from "three";
 import { SceneAssetRegistry, assetFromObject3DRoots, attachSceneAssetRegistryBridge, attachSpatialReviewDiscoveryBridge, buildThreeAsset, buildThreeAssetAsync, disposeThreeAsset } from "../packages/sdk/dist/index.js";
 import { OFFICIAL_SPATIAL_REVIEW_EDITOR_ORIGIN, SPATIAL_REVIEW_CATALOG, SPATIAL_REVIEW_DISCOVERY_REQUEST, SPATIAL_REVIEW_DISCOVERY_RESPONSE, SPATIAL_REVIEW_INDEX_SCHEMA, SPATIAL_REVIEW_REQUEST, SPATIAL_REVIEW_RESOURCE_REQUEST, SPATIAL_REVIEW_RESOURCE_RESPONSE, SPATIAL_REVIEW_RESOURCE_TRANSFER_CAPABILITY, discoveryUrlForWebsite, discoveryUrlsForWebsite, normalizeSpatialReviewDiscovery, spatialReviewEditorUrl } from "../packages/protocol/dist/index.js";
-import { validateAssetDocument, validateReviewIndex } from "../packages/validator/dist/index.js";
+import { validateAssetDocument, validateReviewIndex, validateSceneDocument } from "../packages/validator/dist/index.js";
 
 test("normalizes discovery URLs", () => {
   const url = discoveryUrlForWebsite("example.com/project");
@@ -232,6 +232,26 @@ test("serializes registered Three.js roots without polygon decimation", () => {
   assert.equal(index.assetCatalog.assets[0].geometries[0].geometry.positions.length, 72);
   assert.equal(validateReviewIndex(index).ok, true);
   assert.equal(validateAssetDocument(index.assetCatalog).ok, true);
+});
+
+test("document validators reject incomplete render records, broken hierarchies, and missing asset references", () => {
+  assert.equal(validateSceneDocument({ schema: "scene-actors/v1", actors: [{}] }).ok, false);
+  assert.equal(validateAssetDocument({ schema: "asset-review-3d/v1", id: "bad", name: "Bad", units: "m", assets: [{}] }).ok, false);
+
+  const root = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());
+  const registry = new SceneAssetRegistry("validator-structure-r1");
+  registry.register({ actorId: "fixture", assetId: "fixture", name: "Fixture", category: "Test", sourceRef: "fixture.ts", root });
+  const index = registry.toReviewIndex("review");
+  const cyclic = structuredClone(index.assetCatalog);
+  cyclic.assets[0].nodes[0].parentId = cyclic.assets[0].nodes[0].id;
+  assert.match(validateAssetDocument(cyclic).errors.join("\n"), /hierarchy cycle/);
+  const malformedGeometry = structuredClone(index.assetCatalog);
+  malformedGeometry.assets[0].geometries[0].geometry.positions = [];
+  assert.match(validateAssetDocument(malformedGeometry).errors.join("\n"), /at least three finite XYZ vertices/);
+  const missingAsset = structuredClone(index);
+  missingAsset.scene.actors[0].assetId = "missing";
+  assert.match(validateReviewIndex(missingAsset).errors.join("\n"), /does not reference assetCatalog/);
+  root.geometry.dispose(); root.material.dispose();
 });
 
 test("emits a legacy index only when explicitly requested", () => {
