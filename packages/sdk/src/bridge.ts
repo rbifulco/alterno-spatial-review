@@ -301,7 +301,8 @@ export function attachSceneAssetRegistryBridge(registry: SceneAssetRegistry, opt
       post(target, event.origin, { ...base, ok: false, error: "not-found" });
       return;
     }
-    if (stream.knownRevision === representation.revision) {
+    if (stream.knownRevision === representation.revision
+      && registry.canReuseAssetRepresentation(request.assetId, profile, representation.id, representation.revision)) {
       post(target, event.origin, { ...base, ok: true, notModified: true, representationId: representation.id, revision: representation.revision });
       return;
     }

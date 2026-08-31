@@ -151,6 +151,9 @@ resources use a separate lifetime because the editor requests them asynchronousl
 after receiving geometry: they receive a 60-second delivery grace, then an LRU
 limits retained representation owners to 64 and approximately 256 MiB of decoded
 or source data. The last attached bridge releases every deferred session resource.
+When this resource cache evicts an owner, the SDK also invalidates that geometry
+snapshot and its `knownRevision` shortcut, so the next request regenerates a
+complete representation instead of returning stale resource IDs.
 Keep texture identities stable within a representation revision and provide a
 stable `texture.userData.sourceRef` when possible; this gives the editor a direct
 fallback without forcing the website to retain generated texture objects.
