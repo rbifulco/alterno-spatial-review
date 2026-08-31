@@ -402,9 +402,12 @@ export function attachSceneAssetRegistryBridge(registry: SceneAssetRegistry, opt
     state.stream = stream;
     state.readyForStatus = false;
     if (!stream) {
-      state.queue.splice(0).forEach((job) => { job.terminal = true; });
+      state.queue.splice(0).forEach((job) => {
+        finishJob(state, job, { ...responseBase(job.request, job.profile), ok: false, error: "cancelled", representationId: job.representation.id, revision: job.representation.revision });
+        job.controller.abort();
+      });
       state.active.forEach((job) => {
-        job.terminal = true;
+        finishJob(state, job, { ...responseBase(job.request, job.profile), ok: false, error: "cancelled", representationId: job.representation.id, revision: job.representation.revision });
         job.controller.abort();
         releaseJob(state, job);
       });
