@@ -437,7 +437,12 @@ export function attachSceneAssetRegistryBridge(registry: SceneAssetRegistry, opt
         });
         state.readyForStatus = state.stream && (state.readyForStatus || responseStream);
         if (responseStream) postStatus(target, state, registry.getSourceStatus(), true);
-      } catch { /* Peer closed or the scene changed during capture. */ }
+      } catch {
+        // The editor retries a catalog handshake with the same request ID.
+        // A transient scene-validation failure produced no response, so allow
+        // that retry while still deduplicating canonical/legacy request pairs.
+        if (request.requestId) seenRequests.get(target)?.delete(request.requestId);
+      }
     });
   };
 

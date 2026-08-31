@@ -16,4 +16,5 @@ per-peer negotiation state. Completed geometry and asynchronously requested
 texture resources use independent bounded caches with a delivery grace, and the
 last detached bridge releases all deferred session resources. Resource eviction
 also invalidates stale geometry and revision reuse until a complete replacement
-has been produced.
+has been produced. Catalog retries remain recoverable with the same request ID
+when a transient scene-validation failure prevents the earlier response.
