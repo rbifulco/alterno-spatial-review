@@ -186,3 +186,40 @@ test("bridge negotiates hierarchy independently of progressive and legacy transp
     assert.equal(messages.find((message) => message.requestId === "legacy").payload.scene.ownership.mode, "flattened");
   } finally { detach?.(); globalThis.window = original; }
 });
+
+test("a transient catalog failure can retry the same canonical and legacy request ID", async () => {
+  const registry = new SceneAssetRegistry("retryable-catalog"), parent = new THREE.Group();
+  parent.scale.set(2, 1, 1);
+  const root = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());
+  root.rotation.y = Math.PI / 4;
+  parent.add(root);
+  registry.registerAssembly({ assemblyId: "room", name: "Room", sourceRef: "fixture#room", localTransform: { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] } });
+  registry.register({ actorId: "chair", assetId: "chair", name: "Chair", sourceRef: "fixture#chair", category: "Furniture", parentAssemblyId: "room", root });
+
+  const received = []; let listener;
+  const peer = { postMessage(message) { received.push(message); } }, original = globalThis.window;
+  globalThis.window = { location: { origin: "https://site.example" }, parent: peer, opener: null, setTimeout, addEventListener(_type, fn) { listener = fn; }, removeEventListener() {} };
+  let detach;
+  try {
+    detach = attachSceneAssetRegistryBridge(registry);
+    const request = { requestId: "retry-catalog", capabilities: [SPATIAL_REVIEW_ASSEMBLIES_CAPABILITY], profile: "scene" };
+    const sendPair = () => {
+      listener({ origin: OFFICIAL_SPATIAL_REVIEW_EDITOR_ORIGIN, source: peer, data: { ...request, type: SPATIAL_REVIEW_REQUEST } });
+      listener({ origin: OFFICIAL_SPATIAL_REVIEW_EDITOR_ORIGIN, source: peer, data: { ...request, type: LEGACY_SPATIAL_REVIEW_REQUEST } });
+    };
+
+    sendPair();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(received.some((message) => message.requestId === request.requestId), false);
+
+    parent.scale.set(1, 1, 1);
+    sendPair();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const catalogs = received.filter((message) => message.requestId === request.requestId);
+    assert.equal(catalogs.length, 1, "the retry succeeds while its legacy alias remains deduplicated");
+    assert.equal(catalogs[0].type, SPATIAL_REVIEW_CATALOG);
+  } finally {
+    detach?.(); globalThis.window = original;
+    root.geometry.dispose(); root.material.dispose();
+  }
+});
