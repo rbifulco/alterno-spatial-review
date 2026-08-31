@@ -1,5 +1,43 @@
 # @alterno-dev/spatial-review-validator
 
+## 0.6.0
+
+### Minor Changes
+
+- 952e334: Add negotiated deferred asset streaming, cancellable asynchronous SDK producers,
+  revision-aware representation requests, bounded progress/status messages, and
+  typed instance transfer buffers while retaining complete and progressive legacy
+  fallbacks. Cancellation releases scheduler capacity even when a producer is
+  uncooperative, source status aggregates all peers, and superseded live texture
+  leases no longer survive their asset revision. Negotiated byte limits cover the
+  complete clone payload, and deferred catalog responses cannot mix conflicting
+  per-peer negotiation state. Completed geometry and asynchronously requested
+  texture resources use independent bounded caches with a delivery grace, and the
+  last detached bridge releases all deferred session resources. Resource eviction
+  also invalidates stale geometry and revision reuse until a complete replacement
+  has been produced. Catalog retries remain recoverable with the same request ID
+  when a transient scene-validation failure prevents the earlier response.
+- 5431f9c: Add explicit and project-relative discovery locators across the protocol, SDK,
+  validator release set, and CLI while preserving canonical root discovery for
+  existing integrations. Resolve browser-bridge fields from the advertised
+  manifest URL and reject embedded credentials in every discovery payload URL.
+- e3810b2: Keep deferred representation revisions stable across concurrent requests, reject
+  stale producer completions, validate complete static scene and asset structures,
+  and constrain CLI document fetches to explicitly trusted origins and redirects.
+
+### Patch Changes
+
+- cdf7588: Align producer and consumer safety limits, preserve shared deferred asset
+  resources while their canonical registration remains live, accept valid line
+  and point geometry, reject non-renderable static assets, and validate bounded
+  material references and geometry groups. Bare-host CLI discovery remains
+  compatible with protocol URL normalization. Derived stream offers and cloned
+  typed-instance aliases remain within the same negotiated transfer ceiling.
+- Updated dependencies [952e334]
+- Updated dependencies [5431f9c]
+- Updated dependencies [cdf7588]
+  - @alterno-dev/spatial-review-protocol@0.6.0
+
 ## 0.5.0
 
 ### Minor Changes
