@@ -82,6 +82,29 @@ function instanceBytes(instanceData: AssetInstanceData, maxBytes: number) {
   return bytes;
 }
 
+/** Collect only buffers owned by an already-prepared asset clone. */
+export function assetTransferBuffers(source: ReviewAsset3D) {
+  const buffers = new Set<ArrayBuffer>();
+  const geometries = new Set<AssetGeometry>();
+  const collectGeometry = (geometry: AssetGeometry | undefined) => {
+    if (!geometry || geometry.kind !== "mesh" || geometries.has(geometry)) return;
+    geometries.add(geometry);
+    for (const array of [geometry.positions, geometry.normals, geometry.uvs, geometry.indices]) {
+      if (array && ArrayBuffer.isView(array)) buffers.add(array.buffer as ArrayBuffer);
+    }
+  };
+  source.geometries?.forEach((definition) => collectGeometry(definition.geometry));
+  source.nodes.forEach((node) => {
+    collectGeometry(node.geometry);
+    const data = node.instanceData;
+    if (!data) return;
+    buffers.add(data.transforms.buffer as ArrayBuffer);
+    if (data.colors) buffers.add(data.colors.buffer as ArrayBuffer);
+    if (data.stableIds) buffers.add(data.stableIds.buffer as ArrayBuffer);
+  });
+  return [...buffers];
+}
+
 /** Only transfer owned copies. Detaching renderer buffers or the serialization cache
  * would corrupt the source scene and subsequent handoffs. */
 export function prepareAssetTransfer(source: ReviewAsset3D, maxBytes = 64 * 1024 * 1024, options: PrepareAssetTransferOptions = {}) {
@@ -118,7 +141,6 @@ export function prepareAssetTransfer(source: ReviewAsset3D, maxBytes = 64 * 1024
   if (aliasedProjectionBytes > maxBytes) throw new RangeError("The payload exceeds the negotiated transfer budget.");
   const bytes = measureSpatialReviewTransferBytes(source, maxBytes - aliasedProjectionBytes, projections) + aliasedProjectionBytes;
   const asset = structuredClone(source);
-  const buffers = new Set<ArrayBuffer>();
   seen.clear();
   const compact = (geometry: AssetGeometry | undefined) => {
     if (!geometry || geometry.kind !== "mesh") return;
@@ -128,9 +150,6 @@ export function prepareAssetTransfer(source: ReviewAsset3D, maxBytes = 64 * 1024
     if (geometry.normals) geometry.normals = Float32Array.from(geometry.normals);
     if (geometry.uvs) geometry.uvs = Float32Array.from(geometry.uvs);
     if (geometry.indices) geometry.indices = geometry.indices instanceof Uint16Array ? Uint16Array.from(geometry.indices) : Uint32Array.from(geometry.indices);
-    for (const array of [geometry.positions, geometry.normals, geometry.uvs, geometry.indices]) {
-      if (array && ArrayBuffer.isView(array)) buffers.add(array.buffer as ArrayBuffer);
-    }
   };
   asset.geometries?.forEach((definition) => compact(definition.geometry));
   asset.nodes.forEach((node) => {
@@ -147,9 +166,6 @@ export function prepareAssetTransfer(source: ReviewAsset3D, maxBytes = 64 * 1024
     if (instanceData.colors instanceof Float32Array) instanceData.colors = Float32Array.from(instanceData.colors);
     else if (instanceData.colors instanceof Uint8Array) instanceData.colors = Uint8Array.from(instanceData.colors);
     if (instanceData.stableIds) instanceData.stableIds = Uint32Array.from(instanceData.stableIds);
-    buffers.add(instanceData.transforms.buffer as ArrayBuffer);
-    if (instanceData.colors) buffers.add(instanceData.colors.buffer as ArrayBuffer);
-    if (instanceData.stableIds) buffers.add(instanceData.stableIds.buffer as ArrayBuffer);
   });
-  return { asset, transfer: [...buffers], bytes };
+  return { asset, transfer: assetTransferBuffers(asset), bytes };
 }
