@@ -391,6 +391,8 @@ export function attachSceneAssetRegistryBridge(registry: SceneAssetRegistry, opt
       seenRequests.set(target, seen);
     }
     const state = stateFor(target, event.origin);
+    const previousStream = state.stream;
+    const previousGeometryLimit = state.geometryLimit;
     const requestedLimit = offeredLimit(request.resourceTransfer);
     state.resourceLimit = requestedLimit ? Math.min(maxResourceBytes, requestedLimit) : maxResourceBytes;
     const offeredGeometry = request.geometryTransfer;
@@ -401,7 +403,8 @@ export function attachSceneAssetRegistryBridge(registry: SceneAssetRegistry, opt
     const stream = !legacy && progressive && Array.isArray(request.capabilities) && request.capabilities.includes(SPATIAL_REVIEW_ASSET_STREAM_CAPABILITY);
     state.stream = stream;
     state.readyForStatus = false;
-    if (!stream) {
+    const streamBudgetLowered = previousStream && stream && state.geometryLimit < previousGeometryLimit;
+    if (!stream || streamBudgetLowered) {
       state.queue.splice(0).forEach((job) => {
         finishJob(state, job, { ...responseBase(job.request, job.profile), ok: false, error: "cancelled", representationId: job.representation.id, revision: job.representation.revision });
         job.controller.abort();
