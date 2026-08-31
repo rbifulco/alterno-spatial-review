@@ -237,6 +237,47 @@ test("disabling streaming completes queued and active asset requests as cancelle
   }
 });
 
+test("lowering the negotiated stream budget cancels work accepted under the prior ceiling", async () => {
+  const registry = new SceneAssetRegistry("stream-budget-renegotiation-r1");
+  registry.registerDeferred(deferredRegistration(async ({ signal }) => await new Promise((_resolve, reject) => {
+    const cancelled = () => reject(new DOMException("cancelled", "AbortError"));
+    if (signal.aborted) cancelled();
+    else signal.addEventListener("abort", cancelled, { once: true });
+  })));
+  const received = [];
+  let listener;
+  const editor = { postMessage(message) { received.push(message); } };
+  const originalWindow = globalThis.window;
+  globalThis.window = { location: { origin: "https://site.example" }, parent: editor, opener: null, addEventListener(_type, callback) { listener = callback; }, removeEventListener() {}, setTimeout };
+  let detach;
+  try {
+    detach = attachSceneAssetRegistryBridge(registry, { allowedOrigins: ["https://editor.example"], maxConcurrentAssetRequests: 1, maxInFlightBytes: 256_000, maxGeometryBytes: 256_000 });
+    const send = (data) => listener({ data, origin: "https://editor.example", source: editor });
+    const catalog = (requestId, maxBytes) => ({ type: SPATIAL_REVIEW_REQUEST, requestId, profile: "review", capabilities: [SPATIAL_REVIEW_ASSET_STREAM_CAPABILITY], progressive: true, geometryTransfer: { capability: "geometry-transfer-v1", maxBytes } });
+    send(catalog("large-catalog", 256_000));
+    await wait();
+    const stream = { capability: SPATIAL_REVIEW_ASSET_STREAM_CAPABILITY, representationId: "detail", maxBytes: 256_000, priority: "visible" };
+    send({ type: SPATIAL_REVIEW_ASSET_REQUEST, requestId: "active-large", buildId: registry.buildId, assetId: "deferred-city", profile: "review", stream });
+    send({ type: SPATIAL_REVIEW_ASSET_REQUEST, requestId: "queued-large", buildId: registry.buildId, assetId: "deferred-city", profile: "review", stream });
+    await wait();
+
+    send(catalog("small-catalog", 64_000));
+    await wait(20);
+    const negotiated = received.find((message) => message.requestId === "small-catalog");
+    assert.equal(negotiated.geometryTransfer.maxBytes, 64_000);
+    assert.equal(negotiated.assetStream.capability, SPATIAL_REVIEW_ASSET_STREAM_CAPABILITY);
+    for (const requestId of ["active-large", "queued-large"]) {
+      const responses = received.filter((message) => message.type === SPATIAL_REVIEW_ASSET_RESPONSE && message.requestId === requestId);
+      assert.equal(responses.length, 1, `${requestId} receives exactly one terminal response`);
+      assert.equal(responses[0].error, "cancelled");
+    }
+    assert.equal(registry.getSourceStatus().activeRequests, 0);
+  } finally {
+    detach?.();
+    globalThis.window = originalWindow;
+  }
+});
+
 test("bridge negotiates streaming, reuses revisions, transfers typed instances, and cancels active producers", async () => {
   const registry = new SceneAssetRegistry("stream-bridge-r1");
   let calls = 0;
