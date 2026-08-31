@@ -24,6 +24,7 @@ import { assetFromObject3DRoots } from "./serializer.js";
 import { readTextureResource } from "./resource.js";
 import { SceneGraphCache } from "./scene-cache.js";
 import { assembleScene, matrixTransform, transformMatrix, type SceneAssemblyRegistration } from "./assemblies.js";
+import { assetTransferBuffers, prepareAssetTransfer } from "./geometry-transfer.js";
 
 export type SceneAssetRegistration = { actorId: string; assetId: string; name: string; sourceRef: string; category: string; roots: THREE.Object3D[]; tags?: string[]; order?: number; parentAssemblyId?: string; visible?: boolean };
 export type SceneAssetRepresentationProgress = {
@@ -63,7 +64,11 @@ type DeferredRepresentationCacheEntry = {
   registration: DeferredSceneAssetRegistration;
   assetId: string;
   asset: ReviewAsset3D;
+  bytes: number;
 };
+
+const MAX_DEFERRED_REPRESENTATION_CACHE_ENTRIES = 32;
+const MAX_DEFERRED_REPRESENTATION_CACHE_BYTES = 64 * 1024 * 1024;
 
 const statusPhaseOrder = new Map<SpatialReviewSourceStatusMessage["phase"], number>([
   ["booting", 0],
@@ -127,6 +132,7 @@ export class SceneAssetRegistry {
   private textureResourceOwners = new Map<string, Set<string>>();
   private textureResourceOwnerAssets = new Map<string, string>();
   private deferredRepresentationCache = new Map<string, DeferredRepresentationCacheEntry>();
+  private deferredRepresentationCacheBytes = 0;
   private catalogVersion = 0;
   private sourceStatus: SpatialReviewSourceStatusMessage;
   private sourceStatusListeners = new Set<(status: SpatialReviewSourceStatusMessage) => void>();
@@ -231,10 +237,11 @@ export class SceneAssetRegistry {
       invalidated = new Set([...affected].filter((assetId) => previousCanonical.get(assetId) !== this.assets.get(assetId)));
     }
     this.assetCache.forEach((entry, key) => { if (invalidated.has(entry.asset.id)) this.assetCache.delete(key); });
-    this.deferredRepresentationCache.forEach((entry, key) => { if (invalidated.has(entry.assetId)) this.deferredRepresentationCache.delete(key); });
+    this.deferredRepresentationCache.forEach((entry, key) => { if (invalidated.has(entry.assetId)) this.deleteDeferredRepresentation(key); });
     this.textureResourceOwnerAssets.forEach((assetId, owner) => { if (invalidated.has(assetId)) this.releaseTextureResourceOwner(owner); });
     if (!this.registrations.size && !this.deferredRegistrations.size) {
       this.deferredRepresentationCache.clear();
+      this.deferredRepresentationCacheBytes = 0;
       this.clearTextureResources();
     }
   }
@@ -248,6 +255,41 @@ export class SceneAssetRegistry {
   get size() { return this.registrations.size + this.deferredRegistrations.size; }
   get navigationSize() { return this.navigationRegistrations.size; }
   get cacheMetrics() { return { ...this.graph.metrics, assets: this.assetCache.size }; }
+  get deferredCacheMetrics() {
+    return {
+      entries: this.deferredRepresentationCache.size,
+      bytes: this.deferredRepresentationCacheBytes,
+      maxEntries: MAX_DEFERRED_REPRESENTATION_CACHE_ENTRIES,
+      maxBytes: MAX_DEFERRED_REPRESENTATION_CACHE_BYTES,
+    };
+  }
+  private deleteDeferredRepresentation(key: string) {
+    const cached = this.deferredRepresentationCache.get(key);
+    if (!cached) return false;
+    this.deferredRepresentationCache.delete(key);
+    this.deferredRepresentationCacheBytes = Math.max(0, this.deferredRepresentationCacheBytes - cached.bytes);
+    return true;
+  }
+  private rememberDeferredRepresentation(key: string, entry: DeferredRepresentationCacheEntry) {
+    this.deleteDeferredRepresentation(key);
+    if (entry.bytes > MAX_DEFERRED_REPRESENTATION_CACHE_BYTES) return false;
+    this.deferredRepresentationCache.set(key, entry);
+    this.deferredRepresentationCacheBytes += entry.bytes;
+    while (this.deferredRepresentationCache.size > MAX_DEFERRED_REPRESENTATION_CACHE_ENTRIES
+      || this.deferredRepresentationCacheBytes > MAX_DEFERRED_REPRESENTATION_CACHE_BYTES) {
+      const oldest = this.deferredRepresentationCache.keys().next().value;
+      if (oldest === undefined) break;
+      this.deleteDeferredRepresentation(oldest);
+    }
+    return true;
+  }
+  private useDeferredRepresentation(key: string, cached: DeferredRepresentationCacheEntry, representation: AssetRepresentationDescriptor, maxBytes: number) {
+    if (cached.bytes > maxBytes) throw new RangeError("The requested representation exceeds the negotiated geometry byte budget.");
+    this.deferredRepresentationCache.delete(key);
+    this.deferredRepresentationCache.set(key, cached);
+    const asset = structuredClone(cached.asset);
+    return { asset, representation, transfer: assetTransferBuffers(asset), bytes: cached.bytes };
+  }
   private ordered() {
     if (!this.orderedEntries) {
       this.orderedEntries = [...this.registrations.values(), ...this.deferredRegistrations.values()].sort((a, b) => (a.order ?? Number.MAX_SAFE_INTEGER) - (b.order ?? Number.MAX_SAFE_INTEGER));
@@ -384,7 +426,10 @@ export class SceneAssetRegistry {
       // snapshot keeps response resource IDs stable across concurrent peers.
       const cacheKey = JSON.stringify([profile, entry.assetId, representation.id, representation.revision]);
       const cached = this.deferredRepresentationCache.get(cacheKey);
-      if (cached?.registration === entry) return { asset: structuredClone(cached.asset), representation };
+      if (cached?.registration === entry) {
+        reportProgress({ phase: "serializing" });
+        return this.useDeferredRepresentation(cacheKey, cached, representation, maxBytes);
+      }
       const produced = await entry.produceRepresentation({ assetId, profile, representation: structuredClone(representation), maxBytes, priority, signal, reportProgress });
       if (signal.aborted) throw new DOMException("Asset representation request was cancelled.", "AbortError");
 
@@ -393,27 +438,40 @@ export class SceneAssetRegistry {
       this.ordered();
       if (this.assets.get(assetId) !== entry) throw new Error("Asset representation request was superseded by a catalog change.");
       const completed = this.deferredRepresentationCache.get(cacheKey);
-      if (completed?.registration === entry) return { asset: structuredClone(completed.asset), representation };
+      if (completed?.registration === entry) {
+        reportProgress({ phase: "serializing" });
+        return this.useDeferredRepresentation(cacheKey, completed, representation, maxBytes);
+      }
 
+      let ownsTextureResources = false;
       if (produced instanceof THREE.Object3D || Array.isArray(produced)) {
         const roots = produced instanceof THREE.Object3D ? [produced] : produced;
         if (!roots.length || roots.some((root) => !(root instanceof THREE.Object3D))) throw new Error("The deferred asset producer returned invalid Three.js roots.");
         const resources = new Map<string, THREE.Texture>();
         asset = assetFromObject3DRoots(roots, entry.name, entry.sourceRef, { assetId: entry.assetId, category: entry.category, tags: [...(entry.tags ?? []), "registered", profile], profile, geometryEncoding: "typed", onTexture: (resourceId, texture) => resources.set(resourceId, texture) });
         this.replaceTextureResources(`deferred:${cacheKey}`, entry.assetId, resources);
+        ownsTextureResources = resources.size > 0;
       } else asset = produced;
-      if (asset.id !== entry.assetId) throw new Error(`Deferred asset producer returned "${asset.id}" for requested asset "${entry.assetId}".`);
-      asset = structuredClone(asset);
-      asset.stream = stream;
-      this.deferredRepresentationCache.set(cacheKey, { registration: entry, assetId: entry.assetId, asset });
-      return { asset: structuredClone(asset), representation };
+      let prepared: ReturnType<typeof prepareAssetTransfer>;
+      try {
+        if (asset.id !== entry.assetId) throw new Error(`Deferred asset producer returned "${asset.id}" for requested asset "${entry.assetId}".`);
+        reportProgress({ phase: "serializing" });
+        prepared = prepareAssetTransfer({ ...asset, stream }, maxBytes, { typedInstances: true });
+      } catch (error) {
+        if (ownsTextureResources) this.releaseTextureResourceOwner(`deferred:${cacheKey}`);
+        throw error;
+      }
+      const cacheEntry = { registration: entry, assetId: entry.assetId, asset: prepared.asset, bytes: prepared.bytes };
+      if (this.rememberDeferredRepresentation(cacheKey, cacheEntry)) {
+        return this.useDeferredRepresentation(cacheKey, cacheEntry, representation, maxBytes);
+      }
+      return { ...prepared, representation };
     } else {
       if (this.estimateBytes(entry, profile, 4).bytes > maxBytes) throw new RangeError("The requested representation exceeds the negotiated geometry byte budget.");
       asset = this.asset(entry, profile, true);
     }
-    asset = structuredClone(asset);
-    asset.stream = stream;
-    return { asset, representation };
+    reportProgress({ phase: "serializing" });
+    return { ...prepareAssetTransfer({ ...asset, stream }, maxBytes, { typedInstances: true }), representation };
   }
   private actors(includeDeferred = false): SceneReviewActor[] {
     return this.ordered().filter((entry) => includeDeferred || !isDeferred(entry)).map((entry) => {

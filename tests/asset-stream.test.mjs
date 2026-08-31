@@ -37,6 +37,10 @@ test("deferred registrations publish bounds and representations before creating 
   assert.equal(calls, 1);
   assert.equal(result.asset.id, "deferred-city");
   assert.equal(result.representation.purpose, "overview");
+  structuredClone(result.asset, { transfer: result.transfer });
+  const reused = await registry.produceAssetRepresentation("deferred-city", "review", "overview", 256_000, "visible", controller.signal);
+  assert.ok(reused.asset.nodes[0].instanceData.transforms.byteLength > 0, "transferring one response cannot detach the retained snapshot");
+  assert.equal(calls, 1);
   assert.throws(() => registry.setSourceStatus({ phase: "booting" }), /backwards/);
 });
 
@@ -96,6 +100,43 @@ test("concurrent requests share the first immutable representation snapshot", as
 
   roots.forEach((root) => { root.geometry.dispose(); root.material.dispose(); });
   textures.forEach((texture) => texture.dispose());
+});
+
+test("deferred representation snapshots are validated before caching and retained in a bounded LRU", async () => {
+  let oversized = true;
+  let invalidCalls = 0;
+  const invalidRegistry = new SceneAssetRegistry("deferred-invalid-cache-r1");
+  invalidRegistry.registerDeferred(deferredRegistration((context) => {
+    invalidCalls += 1;
+    return {
+      ...streamedAsset(context.assetId, 0),
+      ...(oversized ? { extension: "x".repeat(300_000) } : {}),
+    };
+  }, 1_024));
+  await assert.rejects(
+    invalidRegistry.produceAssetRepresentation("deferred-city", "review", "detail", 256_000, "visible", new AbortController().signal),
+    /transfer budget/,
+  );
+  assert.equal(invalidRegistry.deferredCacheMetrics.entries, 0);
+  oversized = false;
+  await invalidRegistry.produceAssetRepresentation("deferred-city", "review", "detail", 256_000, "visible", new AbortController().signal);
+  assert.equal(invalidCalls, 2, "an invalid producer result never becomes the immutable cached snapshot");
+
+  let calls = 0;
+  const registry = new SceneAssetRegistry("deferred-bounded-cache-r1");
+  const registrations = Array.from({ length: 33 }, (_, index) => {
+    const base = deferredRegistration((context) => { calls += 1; return streamedAsset(context.assetId, 0); }, 1_024);
+    return { ...base, actorId: `actor-${index}`, assetId: `asset-${index}` };
+  });
+  registrations.forEach((registration) => registry.registerDeferred(registration));
+  for (const registration of registrations) {
+    await registry.produceAssetRepresentation(registration.assetId, "review", "detail", 256_000, "visible", new AbortController().signal);
+  }
+  const metrics = registry.deferredCacheMetrics;
+  assert.equal(metrics.entries, metrics.maxEntries);
+  assert.ok(metrics.bytes <= metrics.maxBytes);
+  await registry.produceAssetRepresentation("asset-0", "review", "detail", 256_000, "visible", new AbortController().signal);
+  assert.equal(calls, 34, "the oldest representation is reproduced after bounded eviction");
 });
 
 test("removing a noncanonical shared actor preserves its live deferred family", async () => {

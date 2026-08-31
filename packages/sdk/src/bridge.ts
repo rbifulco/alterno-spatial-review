@@ -266,10 +266,8 @@ export function attachSceneAssetRegistryBridge(registry: SceneAssetRegistry, opt
           if (!result) {
             finishJob(state, job, { ...base, ok: false, error: "not-found", representationId: job.representation.id, revision: job.representation.revision });
           } else {
-            postProgress(job, { phase: "serializing" }, true);
-            const prepared = prepareAssetTransfer(result.asset, job.maxBytes, { typedInstances: true });
             if (job.controller.signal.aborted) throw new DOMException("Asset representation request was cancelled.", "AbortError");
-            finishJob(state, job, { ...base, ok: true, asset: prepared.asset, representationId: result.representation.id, revision: result.representation.revision, notModified: false }, prepared.transfer);
+            finishJob(state, job, { ...base, ok: true, asset: result.asset, representationId: result.representation.id, revision: result.representation.revision, notModified: false }, result.transfer);
           }
         } catch (error) {
           const cancelled = job.controller.signal.aborted || (error instanceof DOMException && error.name === "AbortError");
