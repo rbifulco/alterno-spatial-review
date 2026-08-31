@@ -170,7 +170,9 @@ queued work on detach. Texture resources keep their separate negotiated limit.
 Completed deferred geometry uses a 32-entry / 64 MiB LRU. Because texture bytes
 are requested after geometry delivery, generated texture owners receive a
 60-second delivery grace and then use a separate 64-owner / approximately
-256 MiB LRU; detaching the final bridge clears all deferred session resources.
+256 MiB LRU. Resource eviction invalidates the matching geometry/revision reuse
+so a later request regenerates valid IDs; detaching the final bridge clears all
+deferred session resources.
 For direct protocol implementations, see the
 [protocol package](../protocol/README.md).
 

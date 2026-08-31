@@ -181,6 +181,55 @@ test("deferred texture resources keep a delivery grace and then obey independent
   }
 });
 
+test("texture-owner eviction invalidates stale geometry and revision reuse", async () => {
+  const originalNow = Date.now;
+  let now = 2_000;
+  Date.now = () => now;
+  const roots = [];
+  const textures = [];
+  try {
+    const registry = new SceneAssetRegistry("deferred-texture-invalidation-r1");
+    const calls = Array(5).fill(0);
+    const registrations = Array.from({ length: 5 }, (_, index) => {
+      const texture = new THREE.Texture({ width: 4_100, height: 4_100 });
+      const geometry = index === 0 ? new THREE.SphereGeometry(1, 32, 16) : new THREE.BoxGeometry();
+      const root = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ map: texture }));
+      roots.push(root); textures.push(texture);
+      const base = deferredRegistration(() => { calls[index] += 1; return root; }, 1_024);
+      return { ...base, actorId: `large-texture-actor-${index}`, assetId: `large-texture-asset-${index}` };
+    });
+    registrations.forEach((registration) => registry.registerDeferred(registration));
+    const resourceIds = [];
+    for (const registration of registrations.slice(0, 4)) {
+      const result = await registry.produceAssetRepresentation(registration.assetId, "review", "detail", 256_000, "visible", new AbortController().signal);
+      resourceIds.push(result.asset.materials[0].maps[0].resourceId);
+    }
+    let metrics = registry.deferredCacheMetrics;
+    assert.ok(metrics.textureBytes > metrics.maxTextureBytes, "young deliveries may temporarily exceed the resource budget");
+
+    now += metrics.textureGraceMs + 1;
+    await registry.produceAssetRepresentation(registrations[4].assetId, "review", "detail", 256_000, "visible", new AbortController().signal);
+    assert.equal(registry.hasTextureResource(resourceIds[0]), false);
+    assert.equal(registry.canReuseAssetRepresentation(registrations[0].assetId, "review", "detail", "city-detail-r3"), false);
+
+    await assert.rejects(
+      registry.produceAssetRepresentation(registrations[0].assetId, "review", "detail", 1_024, "visible", new AbortController().signal),
+      /transfer budget/,
+    );
+    assert.equal(registry.canReuseAssetRepresentation(registrations[0].assetId, "review", "detail", "city-detail-r3"), false,
+      "a failed regeneration cannot revive revision reuse");
+
+    const reproduced = await registry.produceAssetRepresentation(registrations[0].assetId, "review", "detail", 256_000, "visible", new AbortController().signal);
+    assert.equal(calls[0], 3, "missing resources force representation regeneration instead of a stale geometry hit");
+    assert.equal(registry.hasTextureResource(reproduced.asset.materials[0].maps[0].resourceId), true);
+    assert.equal(registry.canReuseAssetRepresentation(registrations[0].assetId, "review", "detail", "city-detail-r3"), true);
+  } finally {
+    Date.now = originalNow;
+    roots.forEach((root) => { root.geometry.dispose(); root.material.dispose(); });
+    textures.forEach((texture) => texture.dispose());
+  }
+});
+
 test("the last live bridge releases deferred session resources", async () => {
   const texture = new THREE.Texture();
   const root = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial({ map: texture }));
@@ -212,12 +261,55 @@ test("the last live bridge releases deferred session resources", async () => {
     assert.equal(registry.hasTextureResource(resourceId), false);
     assert.equal(registry.deferredCacheMetrics.entries, 0);
     assert.equal(registry.deferredCacheMetrics.textureOwners, 0);
+    assert.equal(registry.canReuseAssetRepresentation("deferred-city", "review", "detail", "city-detail-r3"), false);
     detach();
     detach = undefined;
     detachSecond = undefined;
   } finally {
     detach?.();
     detachSecond?.();
+    globalThis.window = originalWindow;
+    root.geometry.dispose(); root.material.dispose(); texture.dispose();
+  }
+});
+
+test("known revisions regenerate after their session resources expire", async () => {
+  const texture = new THREE.Texture();
+  const root = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial({ map: texture }));
+  let calls = 0;
+  const registry = new SceneAssetRegistry("deferred-known-revision-r1");
+  registry.registerDeferred(deferredRegistration(() => { calls += 1; return root; }));
+  const received = [];
+  let listener;
+  const editor = { postMessage(message) { received.push(message); } };
+  const originalWindow = globalThis.window;
+  globalThis.window = {
+    location: { origin: "https://site.example" },
+    parent: editor,
+    opener: null,
+    addEventListener(_type, callback) { listener = callback; },
+    removeEventListener() {},
+    setTimeout,
+  };
+  let detach;
+  try {
+    detach = attachSceneAssetRegistryBridge(registry, { allowedOrigins: ["https://editor.example"] });
+    await registry.produceAssetRepresentation("deferred-city", "review", "detail", 256_000, "visible", new AbortController().signal);
+    detach();
+    detach = attachSceneAssetRegistryBridge(registry, { allowedOrigins: ["https://editor.example"] });
+    const send = (data) => listener({ data, origin: "https://editor.example", source: editor });
+    send({ type: SPATIAL_REVIEW_REQUEST, requestId: "reconnect-catalog", profile: "review", capabilities: [SPATIAL_REVIEW_ASSET_STREAM_CAPABILITY], progressive: true, geometryTransfer: { capability: "geometry-transfer-v1", maxBytes: 256_000 } });
+    await wait();
+    send({ type: SPATIAL_REVIEW_ASSET_REQUEST, requestId: "reconnect-asset", buildId: registry.buildId, assetId: "deferred-city", profile: "review",
+      stream: { capability: SPATIAL_REVIEW_ASSET_STREAM_CAPABILITY, representationId: "detail", maxBytes: 256_000, priority: "interactive", knownRevision: "city-detail-r3" } });
+    await wait();
+    const response = received.find((message) => message.type === SPATIAL_REVIEW_ASSET_RESPONSE && message.requestId === "reconnect-asset");
+    assert.equal(response.ok, true);
+    assert.notEqual(response.notModified, true);
+    assert.ok(response.asset);
+    assert.equal(calls, 2);
+  } finally {
+    detach?.();
     globalThis.window = originalWindow;
     root.geometry.dispose(); root.material.dispose(); texture.dispose();
   }

@@ -14,4 +14,6 @@ leases no longer survive their asset revision. Negotiated byte limits cover the
 complete clone payload, and deferred catalog responses cannot mix conflicting
 per-peer negotiation state. Completed geometry and asynchronously requested
 texture resources use independent bounded caches with a delivery grace, and the
-last detached bridge releases all deferred session resources.
+last detached bridge releases all deferred session resources. Resource eviction
+also invalidates stale geometry and revision reuse until a complete replacement
+has been produced.

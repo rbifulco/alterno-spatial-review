@@ -167,6 +167,7 @@ export class SceneAssetRegistry {
   private deferredTextureResourceOwners = new Map<string, DeferredTextureResourceOwner>();
   private deferredTextureResourceBytes = 0;
   private deferredTextureResourceTrimTimer: ReturnType<typeof setTimeout> | undefined;
+  private unavailableDeferredRepresentations = new Map<string, string>();
   private liveReviewSessions = 0;
   private catalogVersion = 0;
   private sourceStatus: SpatialReviewSourceStatusMessage;
@@ -274,9 +275,11 @@ export class SceneAssetRegistry {
     this.assetCache.forEach((entry, key) => { if (invalidated.has(entry.asset.id)) this.assetCache.delete(key); });
     this.deferredRepresentationCache.forEach((entry, key) => { if (invalidated.has(entry.assetId)) this.deleteDeferredRepresentation(key); });
     this.textureResourceOwnerAssets.forEach((assetId, owner) => { if (invalidated.has(assetId)) this.releaseTextureResourceOwner(owner); });
+    this.unavailableDeferredRepresentations.forEach((assetId, key) => { if (invalidated.has(assetId)) this.unavailableDeferredRepresentations.delete(key); });
     if (!this.registrations.size && !this.deferredRegistrations.size) {
       this.deferredRepresentationCache.clear();
       this.deferredRepresentationCacheBytes = 0;
+      this.unavailableDeferredRepresentations.clear();
       this.clearTextureResources();
     }
   }
@@ -317,7 +320,7 @@ export class SceneAssetRegistry {
       this.deferredRepresentationCacheBytes = 0;
       [...this.textureResourceOwners.keys()]
         .filter((owner) => owner.startsWith("deferred:"))
-        .forEach((owner) => this.releaseTextureResourceOwner(owner));
+        .forEach((owner) => this.releaseTextureResourceOwner(owner, true));
     };
   }
   private forgetDeferredTextureResourceOwner(owner: string) {
@@ -356,7 +359,7 @@ export class SceneAssetRegistry {
         if (Number.isFinite(nextEligibleAt)) this.scheduleDeferredTextureResourceTrim(nextEligibleAt - now);
         return;
       }
-      this.releaseTextureResourceOwner(candidate);
+      this.releaseTextureResourceOwner(candidate, true);
     }
   }
   private retainDeferredTextureResourceOwner(owner: string, resources: ReadonlyMap<string, THREE.Texture>) {
@@ -416,7 +419,13 @@ export class SceneAssetRegistry {
     return new Map([...new Set(assetIds)].map((assetId) => [assetId, this.assets.get(assetId)]));
   }
   private revision(entry: SceneAssetRegistration) { return entry.roots.map((root) => this.graph.inspect(root).revision).join(":"); }
-  private releaseTextureResourceOwner(owner: string) {
+  private releaseTextureResourceOwner(owner: string, representationUnavailable = false) {
+    if (representationUnavailable && owner.startsWith("deferred:")) {
+      const cacheKey = owner.slice("deferred:".length);
+      const assetId = this.textureResourceOwnerAssets.get(owner);
+      if (assetId) this.unavailableDeferredRepresentations.set(cacheKey, assetId);
+      this.deleteDeferredRepresentation(cacheKey);
+    }
     this.forgetDeferredTextureResourceOwner(owner);
     const resourceIds = this.textureResourceOwners.get(owner);
     resourceIds?.forEach((resourceId) => {
@@ -453,6 +462,7 @@ export class SceneAssetRegistry {
     this.deferredTextureResourceTrimTimer = undefined;
     this.deferredTextureResourceOwners.clear();
     this.deferredTextureResourceBytes = 0;
+    this.unavailableDeferredRepresentations.clear();
     this.textureResources.clear();
     this.textureResourceOwners.clear();
     this.textureResourceOwnerAssets.clear();
@@ -534,6 +544,18 @@ export class SceneAssetRegistry {
     const entry = this.assets.get(assetId);
     return entry ? this.streamDescriptor(entry, profile) : undefined;
   }
+  private deferredRepresentationKey(profile: SpatialReviewProfile, assetId: string, representationId: string, revision: string) {
+    return JSON.stringify([profile, assetId, representationId, revision]);
+  }
+  canReuseAssetRepresentation(assetId: string, profile: SpatialReviewProfile, representationId: string, revision: string) {
+    this.ordered();
+    const entry = this.assets.get(assetId);
+    if (!entry) return false;
+    if (!isDeferred(entry)) return true;
+    const representation = entry.stream.representations.find((candidate) => candidate.id === representationId && candidate.revision === revision);
+    if (!representation) return false;
+    return !this.unavailableDeferredRepresentations.has(this.deferredRepresentationKey(profile, assetId, representationId, revision));
+  }
   async produceAssetRepresentation(assetId: string, profile: SpatialReviewProfile, representationId: string, maxBytes: number,
     priority: SceneAssetRepresentationContext["priority"], signal: AbortSignal, reportProgress: SceneAssetRepresentationContext["reportProgress"] = () => {}) {
     this.graph.begin(); this.ordered();
@@ -548,12 +570,13 @@ export class SceneAssetRegistry {
     if (isDeferred(entry)) {
       // A representation revision is immutable. Reusing its first completed
       // snapshot keeps response resource IDs stable across concurrent peers.
-      const cacheKey = JSON.stringify([profile, entry.assetId, representation.id, representation.revision]);
+      const cacheKey = this.deferredRepresentationKey(profile, entry.assetId, representation.id, representation.revision);
       const cached = this.deferredRepresentationCache.get(cacheKey);
-      if (cached?.registration === entry) {
+      if (cached?.registration === entry && !this.unavailableDeferredRepresentations.has(cacheKey)) {
         reportProgress({ phase: "serializing" });
         return this.useDeferredRepresentation(cacheKey, cached, representation, maxBytes);
       }
+      if (cached) this.deleteDeferredRepresentation(cacheKey);
       const produced = await entry.produceRepresentation({ assetId, profile, representation: structuredClone(representation), maxBytes, priority, signal, reportProgress });
       if (signal.aborted) throw new DOMException("Asset representation request was cancelled.", "AbortError");
 
@@ -562,10 +585,11 @@ export class SceneAssetRegistry {
       this.ordered();
       if (this.assets.get(assetId) !== entry) throw new Error("Asset representation request was superseded by a catalog change.");
       const completed = this.deferredRepresentationCache.get(cacheKey);
-      if (completed?.registration === entry) {
+      if (completed?.registration === entry && !this.unavailableDeferredRepresentations.has(cacheKey)) {
         reportProgress({ phase: "serializing" });
         return this.useDeferredRepresentation(cacheKey, completed, representation, maxBytes);
       }
+      if (completed) this.deleteDeferredRepresentation(cacheKey);
 
       let ownsTextureResources = false;
       if (produced instanceof THREE.Object3D || Array.isArray(produced)) {
@@ -585,6 +609,7 @@ export class SceneAssetRegistry {
         if (ownsTextureResources) this.releaseTextureResourceOwner(`deferred:${cacheKey}`);
         throw error;
       }
+      this.unavailableDeferredRepresentations.delete(cacheKey);
       const cacheEntry = { registration: entry, assetId: entry.assetId, asset: prepared.asset, bytes: prepared.bytes };
       if (this.rememberDeferredRepresentation(cacheKey, cacheEntry)) {
         return this.useDeferredRepresentation(cacheKey, cacheEntry, representation, maxBytes);
