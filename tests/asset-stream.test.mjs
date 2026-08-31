@@ -139,6 +139,90 @@ test("deferred representation snapshots are validated before caching and retaine
   assert.equal(calls, 34, "the oldest representation is reproduced after bounded eviction");
 });
 
+test("deferred texture resources keep a delivery grace and then obey independent bounds", async () => {
+  const originalNow = Date.now;
+  let now = 1_000;
+  Date.now = () => now;
+  const roots = [];
+  const textures = [];
+  try {
+    const registry = new SceneAssetRegistry("deferred-texture-cache-r1");
+    const registrations = Array.from({ length: 66 }, (_, index) => {
+      const texture = new THREE.Texture();
+      const root = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial({ map: texture }));
+      roots.push(root); textures.push(texture);
+      const base = deferredRegistration(() => root, 1_024);
+      return { ...base, actorId: `textured-actor-${index}`, assetId: `textured-asset-${index}` };
+    });
+    registrations.forEach((registration) => registry.registerDeferred(registration));
+    const resourceIds = [];
+    for (const registration of registrations.slice(0, 65)) {
+      const result = await registry.produceAssetRepresentation(registration.assetId, "review", "detail", 256_000, "visible", new AbortController().signal);
+      resourceIds.push(result.asset.materials[0].maps[0].resourceId);
+    }
+
+    let metrics = registry.deferredCacheMetrics;
+    assert.equal(metrics.entries, metrics.maxEntries, "geometry snapshots remain independently bounded");
+    assert.equal(metrics.textureOwners, 65, "a just-delivered resource is not removed before the editor can request it");
+    assert.equal(registry.hasTextureResource(resourceIds[0]), true);
+
+    now += metrics.textureGraceMs + 1;
+    const final = await registry.produceAssetRepresentation(registrations[65].assetId, "review", "detail", 256_000, "visible", new AbortController().signal);
+    resourceIds.push(final.asset.materials[0].maps[0].resourceId);
+    metrics = registry.deferredCacheMetrics;
+    assert.ok(metrics.textureOwners <= metrics.maxTextureOwners);
+    assert.ok(metrics.textureBytes <= metrics.maxTextureBytes);
+    assert.equal(registry.hasTextureResource(resourceIds[0]), false, "the oldest expired resource owner is released");
+    assert.equal(registry.hasTextureResource(resourceIds.at(-1)), true, "the current delivery remains available");
+  } finally {
+    Date.now = originalNow;
+    roots.forEach((root) => { root.geometry.dispose(); root.material.dispose(); });
+    textures.forEach((texture) => texture.dispose());
+  }
+});
+
+test("the last live bridge releases deferred session resources", async () => {
+  const texture = new THREE.Texture();
+  const root = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial({ map: texture }));
+  const registry = new SceneAssetRegistry("deferred-session-release-r1");
+  registry.registerDeferred(deferredRegistration(() => root));
+  const editor = { postMessage() {} };
+  const originalWindow = globalThis.window;
+  globalThis.window = {
+    location: { origin: "https://site.example" },
+    parent: editor,
+    opener: null,
+    addEventListener() {},
+    removeEventListener() {},
+    setTimeout,
+  };
+  let detach;
+  let detachSecond;
+  try {
+    detach = attachSceneAssetRegistryBridge(registry, { allowedOrigins: ["https://editor.example"] });
+    detachSecond = attachSceneAssetRegistryBridge(registry, { allowedOrigins: ["https://editor.example"] });
+    const result = await registry.produceAssetRepresentation(
+      "deferred-city", "review", "detail", 256_000, "visible", new AbortController().signal,
+    );
+    const resourceId = result.asset.materials[0].maps[0].resourceId;
+    assert.equal(registry.hasTextureResource(resourceId), true);
+    detach();
+    assert.equal(registry.hasTextureResource(resourceId), true, "another live bridge still owns the session");
+    detachSecond();
+    assert.equal(registry.hasTextureResource(resourceId), false);
+    assert.equal(registry.deferredCacheMetrics.entries, 0);
+    assert.equal(registry.deferredCacheMetrics.textureOwners, 0);
+    detach();
+    detach = undefined;
+    detachSecond = undefined;
+  } finally {
+    detach?.();
+    detachSecond?.();
+    globalThis.window = originalWindow;
+    root.geometry.dispose(); root.material.dispose(); texture.dispose();
+  }
+});
+
 test("removing a noncanonical shared actor preserves its live deferred family", async () => {
   const texture = new THREE.Texture();
   const root = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial({ map: texture }));
