@@ -146,6 +146,15 @@ it accepts a cancellation, even if a faulty producer delays observing its
 `AbortSignal`; any late result is ignored. Producers must still stop promptly so
 cancelled work does not retain application-owned CPU, worker, or GPU resources.
 
+The SDK bounds completed geometry snapshots to 32 entries and 64 MiB. Texture
+resources use a separate lifetime because the editor requests them asynchronously
+after receiving geometry: they receive a 60-second delivery grace, then an LRU
+limits retained representation owners to 64 and approximately 256 MiB of decoded
+or source data. The last attached bridge releases every deferred session resource.
+Keep texture identities stable within a representation revision and provide a
+stable `texture.userData.sourceRef` when possible; this gives the editor a direct
+fallback without forcing the website to retain generated texture objects.
+
 Consumers should validate the complete payload before GPU allocation. Cache
 entries must include protocol/schema versions, source origin, normalized
 website/capture URL, profile, asset ID, representation ID, and representation

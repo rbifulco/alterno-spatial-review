@@ -454,9 +454,17 @@ export function attachSceneAssetRegistryBridge(registry: SceneAssetRegistry, opt
     onCatalogRequest(event, request);
   };
 
-  window.addEventListener("message", onMessage);
-  postReady();
+  const releaseLiveReviewSession = registry.retainLiveReviewSession();
+  try {
+    window.addEventListener("message", onMessage);
+    postReady();
+  } catch (error) {
+    window.removeEventListener("message", onMessage);
+    releaseLiveReviewSession();
+    throw error;
+  }
   return () => {
+    if (disposed) return;
     disposed = true;
     stopStatusListener();
     peerStates.forEach((state) => {
@@ -472,5 +480,6 @@ export function attachSceneAssetRegistryBridge(registry: SceneAssetRegistry, opt
     timers.forEach((timer) => clearTimeout(timer));
     timers.clear();
     window.removeEventListener("message", onMessage);
+    releaseLiveReviewSession();
   };
 }

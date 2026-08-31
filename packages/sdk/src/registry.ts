@@ -60,6 +60,7 @@ export type NavigationSequenceRegistration = NavigationSequence & { order?: numb
 type CachedAsset = { revision: string; asset: ReviewAsset3D };
 type AnySceneAssetRegistration = SceneAssetRegistration | DeferredSceneAssetRegistration;
 type TextureResourceEntry = { texture: THREE.Texture; owners: Set<string> };
+type DeferredTextureResourceOwner = { bytes: number; lastUsedAt: number };
 type DeferredRepresentationCacheEntry = {
   registration: DeferredSceneAssetRegistration;
   assetId: string;
@@ -69,6 +70,10 @@ type DeferredRepresentationCacheEntry = {
 
 const MAX_DEFERRED_REPRESENTATION_CACHE_ENTRIES = 32;
 const MAX_DEFERRED_REPRESENTATION_CACHE_BYTES = 64 * 1024 * 1024;
+const MAX_DEFERRED_TEXTURE_RESOURCE_OWNERS = 64;
+const MAX_DEFERRED_TEXTURE_RESOURCE_BYTES = 256 * 1024 * 1024;
+const DEFERRED_TEXTURE_RESOURCE_GRACE_MS = 60_000;
+const UNKNOWN_TEXTURE_RETENTION_BYTES = 64 * 1024;
 
 const statusPhaseOrder = new Map<SpatialReviewSourceStatusMessage["phase"], number>([
   ["booting", 0],
@@ -117,6 +122,32 @@ function transform(object: THREE.Object3D) {
   return matrixTransform(object.matrixWorld);
 }
 
+function textureRetentionBytes(texture: THREE.Texture) {
+  let bytes = UNKNOWN_TEXTURE_RETENTION_BYTES;
+  const inspect = (value: unknown) => {
+    if (!value) return;
+    if (typeof Blob !== "undefined" && value instanceof Blob) {
+      bytes = Math.max(bytes, value.size);
+      return;
+    }
+    if (value instanceof ArrayBuffer || ArrayBuffer.isView(value)) {
+      bytes = Math.max(bytes, value.byteLength);
+      return;
+    }
+    if (typeof value !== "object") return;
+    const record = value as { data?: unknown; width?: unknown; height?: unknown; naturalWidth?: unknown; naturalHeight?: unknown; videoWidth?: unknown; videoHeight?: unknown };
+    if (record.data instanceof ArrayBuffer || ArrayBuffer.isView(record.data)) bytes = Math.max(bytes, record.data.byteLength);
+    const width = Number(record.naturalWidth ?? record.videoWidth ?? record.width);
+    const height = Number(record.naturalHeight ?? record.videoHeight ?? record.height);
+    if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) {
+      bytes = Math.max(bytes, Math.min(Number.MAX_SAFE_INTEGER, Math.ceil(width) * Math.ceil(height) * 4));
+    }
+  };
+  inspect(texture.userData.sourceBlob);
+  inspect(texture.source?.data);
+  return bytes;
+}
+
 export class SceneAssetRegistry {
   readonly buildId: string;
   private registrations = new Map<string, SceneAssetRegistration>();
@@ -133,6 +164,10 @@ export class SceneAssetRegistry {
   private textureResourceOwnerAssets = new Map<string, string>();
   private deferredRepresentationCache = new Map<string, DeferredRepresentationCacheEntry>();
   private deferredRepresentationCacheBytes = 0;
+  private deferredTextureResourceOwners = new Map<string, DeferredTextureResourceOwner>();
+  private deferredTextureResourceBytes = 0;
+  private deferredTextureResourceTrimTimer: ReturnType<typeof setTimeout> | undefined;
+  private liveReviewSessions = 0;
   private catalogVersion = 0;
   private sourceStatus: SpatialReviewSourceStatusMessage;
   private sourceStatusListeners = new Set<(status: SpatialReviewSourceStatusMessage) => void>();
@@ -261,7 +296,86 @@ export class SceneAssetRegistry {
       bytes: this.deferredRepresentationCacheBytes,
       maxEntries: MAX_DEFERRED_REPRESENTATION_CACHE_ENTRIES,
       maxBytes: MAX_DEFERRED_REPRESENTATION_CACHE_BYTES,
+      textureOwners: this.deferredTextureResourceOwners.size,
+      textureBytes: this.deferredTextureResourceBytes,
+      maxTextureOwners: MAX_DEFERRED_TEXTURE_RESOURCE_OWNERS,
+      maxTextureBytes: MAX_DEFERRED_TEXTURE_RESOURCE_BYTES,
+      textureGraceMs: DEFERRED_TEXTURE_RESOURCE_GRACE_MS,
     };
+  }
+  /** @internal Keeps generated resources alive while at least one bridge can
+   * receive late texture requests, then releases all session-only snapshots. */
+  retainLiveReviewSession() {
+    this.liveReviewSessions += 1;
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      this.liveReviewSessions = Math.max(0, this.liveReviewSessions - 1);
+      if (this.liveReviewSessions > 0) return;
+      this.deferredRepresentationCache.clear();
+      this.deferredRepresentationCacheBytes = 0;
+      [...this.textureResourceOwners.keys()]
+        .filter((owner) => owner.startsWith("deferred:"))
+        .forEach((owner) => this.releaseTextureResourceOwner(owner));
+    };
+  }
+  private forgetDeferredTextureResourceOwner(owner: string) {
+    const retained = this.deferredTextureResourceOwners.get(owner);
+    if (!retained) return false;
+    this.deferredTextureResourceOwners.delete(owner);
+    this.deferredTextureResourceBytes = Math.max(0, this.deferredTextureResourceBytes - retained.bytes);
+    return true;
+  }
+  private scheduleDeferredTextureResourceTrim(delay: number) {
+    if (this.deferredTextureResourceTrimTimer !== undefined) clearTimeout(this.deferredTextureResourceTrimTimer);
+    const timer = setTimeout(() => {
+      if (this.deferredTextureResourceTrimTimer !== timer) return;
+      this.deferredTextureResourceTrimTimer = undefined;
+      this.trimDeferredTextureResources();
+    }, Math.max(1, Math.ceil(delay)));
+    this.deferredTextureResourceTrimTimer = timer;
+    (timer as unknown as { unref?: () => void }).unref?.();
+  }
+  private trimDeferredTextureResources() {
+    if (this.deferredTextureResourceTrimTimer !== undefined) {
+      clearTimeout(this.deferredTextureResourceTrimTimer);
+      this.deferredTextureResourceTrimTimer = undefined;
+    }
+    const now = Date.now();
+    while (this.deferredTextureResourceOwners.size > MAX_DEFERRED_TEXTURE_RESOURCE_OWNERS
+      || this.deferredTextureResourceBytes > MAX_DEFERRED_TEXTURE_RESOURCE_BYTES) {
+      let candidate: string | undefined;
+      let nextEligibleAt = Number.POSITIVE_INFINITY;
+      for (const [owner, retained] of this.deferredTextureResourceOwners) {
+        const eligibleAt = retained.lastUsedAt + DEFERRED_TEXTURE_RESOURCE_GRACE_MS;
+        if (eligibleAt <= now) { candidate = owner; break; }
+        nextEligibleAt = Math.min(nextEligibleAt, eligibleAt);
+      }
+      if (candidate === undefined) {
+        if (Number.isFinite(nextEligibleAt)) this.scheduleDeferredTextureResourceTrim(nextEligibleAt - now);
+        return;
+      }
+      this.releaseTextureResourceOwner(candidate);
+    }
+  }
+  private retainDeferredTextureResourceOwner(owner: string, resources: ReadonlyMap<string, THREE.Texture>) {
+    if (!owner.startsWith("deferred:") || resources.size === 0) return;
+    this.forgetDeferredTextureResourceOwner(owner);
+    const bytes = [...resources.values()].reduce((total, texture) => Math.min(Number.MAX_SAFE_INTEGER, total + textureRetentionBytes(texture)), 0);
+    this.deferredTextureResourceOwners.set(owner, { bytes, lastUsedAt: Date.now() });
+    this.deferredTextureResourceBytes = Math.min(Number.MAX_SAFE_INTEGER, this.deferredTextureResourceBytes + bytes);
+    this.trimDeferredTextureResources();
+  }
+  private touchDeferredTextureResourceOwners(resource: TextureResourceEntry) {
+    const now = Date.now();
+    resource.owners.forEach((owner) => {
+      const retained = this.deferredTextureResourceOwners.get(owner);
+      if (!retained) return;
+      this.deferredTextureResourceOwners.delete(owner);
+      this.deferredTextureResourceOwners.set(owner, { ...retained, lastUsedAt: now });
+    });
+    this.trimDeferredTextureResources();
   }
   private deleteDeferredRepresentation(key: string) {
     const cached = this.deferredRepresentationCache.get(key);
@@ -303,6 +417,7 @@ export class SceneAssetRegistry {
   }
   private revision(entry: SceneAssetRegistration) { return entry.roots.map((root) => this.graph.inspect(root).revision).join(":"); }
   private releaseTextureResourceOwner(owner: string) {
+    this.forgetDeferredTextureResourceOwner(owner);
     const resourceIds = this.textureResourceOwners.get(owner);
     resourceIds?.forEach((resourceId) => {
       const resource = this.textureResources.get(resourceId);
@@ -312,6 +427,10 @@ export class SceneAssetRegistry {
     });
     this.textureResourceOwners.delete(owner);
     this.textureResourceOwnerAssets.delete(owner);
+    if (!this.deferredTextureResourceOwners.size && this.deferredTextureResourceTrimTimer !== undefined) {
+      clearTimeout(this.deferredTextureResourceTrimTimer);
+      this.deferredTextureResourceTrimTimer = undefined;
+    }
   }
   private replaceTextureResources(owner: string, assetId: string, resources: Map<string, THREE.Texture>) {
     this.releaseTextureResourceOwner(owner);
@@ -326,9 +445,14 @@ export class SceneAssetRegistry {
     if (resourceIds.size) {
       this.textureResourceOwners.set(owner, resourceIds);
       this.textureResourceOwnerAssets.set(owner, assetId);
+      this.retainDeferredTextureResourceOwner(owner, resources);
     }
   }
   private clearTextureResources() {
+    if (this.deferredTextureResourceTrimTimer !== undefined) clearTimeout(this.deferredTextureResourceTrimTimer);
+    this.deferredTextureResourceTrimTimer = undefined;
+    this.deferredTextureResourceOwners.clear();
+    this.deferredTextureResourceBytes = 0;
     this.textureResources.clear();
     this.textureResourceOwners.clear();
     this.textureResourceOwnerAssets.clear();
@@ -517,5 +641,10 @@ export class SceneAssetRegistry {
       scene: this.toScene(!legacy && hierarchical, stream), assetCatalog: this.document(profile, metadata, stream) };
   }
   hasTextureResource(resourceId: string) { return this.textureResources.has(resourceId); }
-  async readTextureResource(resourceId: string, maxBytes: number) { const resource = this.textureResources.get(resourceId); return resource ? readTextureResource(resource.texture, maxBytes) : undefined; }
+  async readTextureResource(resourceId: string, maxBytes: number) {
+    const resource = this.textureResources.get(resourceId);
+    if (!resource) return undefined;
+    this.touchDeferredTextureResourceOwners(resource);
+    return readTextureResource(resource.texture, maxBytes);
+  }
 }

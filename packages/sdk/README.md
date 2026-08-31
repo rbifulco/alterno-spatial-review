@@ -167,6 +167,10 @@ The existing origin and window-source checks apply to the new requests. The
 bridge negotiates a geometry byte limit (64 MiB by default), checks family size
 before allocating its serialized buffers, bounds pending requests, and cancels
 queued work on detach. Texture resources keep their separate negotiated limit.
+Completed deferred geometry uses a 32-entry / 64 MiB LRU. Because texture bytes
+are requested after geometry delivery, generated texture owners receive a
+60-second delivery grace and then use a separate 64-owner / approximately
+256 MiB LRU; detaching the final bridge clears all deferred session resources.
 For direct protocol implementations, see the
 [protocol package](../protocol/README.md).
 
