@@ -387,7 +387,90 @@ test("stream metadata and responses reject duplicate, malformed, and over-budget
   }));
   const aliasedTransfer = prepareAssetTransfer(aliased, 1024 * 1024);
   assert.ok(aliasedTransfer.bytes >= aliasedPositions.byteLength * 3, "each compacted alias is reserved in the transfer budget");
+
+  const sharedInstanceBuffer = new ArrayBuffer(2_000 * 16 * 4);
+  const sharedInstanceAsset = streamedAsset("typed-aliases", 0);
+  sharedInstanceAsset.nodes = [new Float32Array(sharedInstanceBuffer), new Float32Array(sharedInstanceBuffer)].map((transforms, index) => ({
+    ...sharedInstanceAsset.nodes[0],
+    id: `typed-alias-${index}`,
+    instances: undefined,
+    instanceData: { encoding: "matrix-f32-v1", count: 2_000, transforms },
+  }));
+  assert.throws(() => prepareAssetTransfer(sharedInstanceAsset, 132_000, { typedInstances: true }), /transfer budget/,
+    "typed views that alias one source buffer reserve each owned transfer copy");
+  const preparedAliases = prepareAssetTransfer(sharedInstanceAsset, 300_000, { typedInstances: true });
+  const transferredAliasBytes = preparedAliases.transfer.reduce((total, buffer) => total + buffer.byteLength, 0);
+  assert.ok(preparedAliases.bytes >= transferredAliasBytes);
+  assert.notEqual(preparedAliases.asset.nodes[0].instanceData.transforms.buffer, preparedAliases.asset.nodes[1].instanceData.transforms.buffer);
+  assert.equal(validateSpatialReviewAssetResponse({
+    type: SPATIAL_REVIEW_ASSET_RESPONSE,
+    requestId: "typed-aliases",
+    buildId: "b",
+    assetId: "typed-aliases",
+    profile: "review",
+    ok: true,
+    asset: preparedAliases.asset,
+    representationId: "detail",
+    revision: "r1",
+  }, 300_000).ok, true);
+
+  const packedInstanceBuffer = new ArrayBuffer(1_000_000);
+  const packedInstanceSubview = new Float32Array(packedInstanceBuffer, 4_096, 32);
+  const packedInstanceAsset = streamedAsset("packed-instance-alias", 0);
+  packedInstanceAsset.nodes = [0, 1].map((index) => ({
+    ...packedInstanceAsset.nodes[0],
+    id: `packed-instance-alias-${index}`,
+    instances: undefined,
+    instanceData: { encoding: "matrix-f32-v1", count: 2, transforms: packedInstanceSubview },
+  }));
+  const preparedSubviews = prepareAssetTransfer(packedInstanceAsset, 5_000, { typedInstances: true });
+  assert.ok(preparedSubviews.bytes <= 5_000, "fully compacted subviews do not reserve unused backing-buffer bytes");
+  assert.notEqual(preparedSubviews.asset.nodes[0].instanceData.transforms.buffer, preparedSubviews.asset.nodes[1].instanceData.transforms.buffer);
+  assert.throws(() => prepareAssetTransfer({ ...packedInstanceAsset, retainedSubview: packedInstanceSubview }, 5_000, { typedInstances: true }), /transfer budget/,
+    "an unprojected alias still reserves its retained backing buffer");
   assert.equal(validateSpatialReviewSourceStatus({ type: "alterno:spatial-review:source-status", buildId: "b", catalogRevision: "r", phase: "streaming", expectedActors: 1, readyActors: 2 }).ok, false);
+});
+
+test("bridge caps a derived aggregate stream offer at the protocol maximum", async () => {
+  const registry = new SceneAssetRegistry("bounded-derived-offer");
+  const received = [];
+  let listener;
+  const editor = { postMessage(message) { received.push(message); } };
+  const originalWindow = globalThis.window;
+  globalThis.window = {
+    location: { origin: "https://site.example" },
+    parent: editor,
+    opener: null,
+    addEventListener(_type, callback) { listener = callback; },
+    removeEventListener() {},
+    setTimeout,
+  };
+  let detach;
+  try {
+    detach = attachSceneAssetRegistryBridge(registry, {
+      allowedOrigins: ["https://editor.example"],
+      maxGeometryBytes: 1024 * 1024 * 1024,
+    });
+    listener({
+      origin: "https://editor.example",
+      source: editor,
+      data: {
+        type: SPATIAL_REVIEW_REQUEST,
+        requestId: "bounded-offer",
+        profile: "review",
+        capabilities: [SPATIAL_REVIEW_ASSET_STREAM_CAPABILITY],
+        progressive: true,
+        geometryTransfer: { capability: "geometry-transfer-v1", maxBytes: 1024 * 1024 * 1024 },
+      },
+    });
+    await wait();
+    const offer = received.find((message) => message.requestId === "bounded-offer").assetStream;
+    assert.equal(offer.maxInFlightBytes, 1024 * 1024 * 1024);
+    assert.equal(validateSpatialReviewAssetStreamOffer(offer).ok, true);
+  } finally {
+    detach?.();
+    globalThis.window = originalWindow;
+  }
 });
 
 test("deferred catalog replies cannot mix state from conflicting peer negotiations", async () => {

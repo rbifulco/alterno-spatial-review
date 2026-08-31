@@ -138,8 +138,10 @@ descriptor counts, queue length, concurrency, per-request bytes, aggregate
 in-flight bytes, progress frequency, geometry values, and instance counts.
 The per-request byte budget covers the complete structured-clone payload,
 including metadata and unknown extension fields, rather than geometry buffers
-alone. Cyclic, accessor-backed, or non-plain extension values are rejected
-before cloning.
+alone. Derived aggregate offers remain within the protocol maximum, and typed
+instance views that alias a source buffer reserve each owned transfer copy.
+Cyclic, accessor-backed, or non-plain extension values are rejected before
+cloning.
 Cancellation aborts the producer and prevents any later asset response from
 winning the race. The bridge releases scheduler and byte reservations as soon as
 it accepts a cancellation, even if a faulty producer delays observing its

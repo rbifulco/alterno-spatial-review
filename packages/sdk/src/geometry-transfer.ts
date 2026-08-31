@@ -110,16 +110,19 @@ export function assetTransferBuffers(source: ReviewAsset3D) {
 export function prepareAssetTransfer(source: ReviewAsset3D, maxBytes = 64 * 1024 * 1024, options: PrepareAssetTransferOptions = {}) {
   const references = objectReferenceCounts(source);
   const projections = new WeakMap<object, number>();
-  const projected = new WeakSet<object>();
+  const projectionRequests = new Map<object, { bytes: number; count: number }>();
   let aliasedProjectionBytes = 0;
   const project = (value: unknown, projectedBytes: number) => {
-    if (!value || typeof value !== "object" || projected.has(value)) return;
-    projected.add(value);
-    const referenceCount = references.get(value) ?? 0;
-    if (referenceCount <= 1) projections.set(value, projectedBytes);
-    else aliasedProjectionBytes += projectedBytes * (referenceCount - 1);
+    if (!value || typeof value !== "object") return;
+    const request = projectionRequests.get(value);
+    if (request) {
+      if (request.bytes !== projectedBytes) throw new TypeError("A projected transfer value cannot use conflicting encodings.");
+      request.count += 1;
+    } else projectionRequests.set(value, { bytes: projectedBytes, count: 1 });
   };
   const seen = new Set<AssetGeometry>();
+  const seenNodes = new Set<object>();
+  const seenInstanceData = new Set<AssetInstanceData>();
   const check = (geometry: AssetGeometry | undefined) => {
     if (!geometry || geometry.kind !== "mesh" || seen.has(geometry)) return;
     seen.add(geometry);
@@ -131,12 +134,25 @@ export function prepareAssetTransfer(source: ReviewAsset3D, maxBytes = 64 * 1024
   source.geometries?.forEach((definition) => check(definition.geometry));
   source.nodes.forEach((node) => {
     check(node.geometry);
+    if (seenNodes.has(node)) return;
+    seenNodes.add(node);
     if (node.instances !== undefined && node.instanceData !== undefined) throw new TypeError("An asset node cannot use both legacy and typed instance encodings.");
     if (node.instances) {
       if (node.instances.length > 100_000 || node.instances.some((matrix) => !Array.isArray(matrix) || matrix.length !== 16 || !matrix.every(Number.isFinite))) throw new TypeError("Legacy instance transforms must be finite 4x4 matrices.");
       if (options.typedInstances) project(node.instances, 128 + node.instances.length * 16 * 4);
     }
-    if (node.instanceData) instanceBytes(node.instanceData, maxBytes);
+    if (node.instanceData && !seenInstanceData.has(node.instanceData)) {
+      seenInstanceData.add(node.instanceData);
+      instanceBytes(node.instanceData, maxBytes);
+      project(node.instanceData.transforms, node.instanceData.transforms.byteLength);
+      if (node.instanceData.colors) project(node.instanceData.colors, node.instanceData.colors.byteLength);
+      if (node.instanceData.stableIds) project(node.instanceData.stableIds, node.instanceData.stableIds.byteLength);
+    }
+  });
+  projectionRequests.forEach(({ bytes: projectedBytes, count }, value) => {
+    const referenceCount = references.get(value) ?? 0;
+    if (count >= referenceCount) projections.set(value, projectedBytes);
+    else aliasedProjectionBytes += projectedBytes * count;
   });
   if (aliasedProjectionBytes > maxBytes) throw new RangeError("The payload exceeds the negotiated transfer budget.");
   const bytes = measureSpatialReviewTransferBytes(source, maxBytes - aliasedProjectionBytes, projections) + aliasedProjectionBytes;

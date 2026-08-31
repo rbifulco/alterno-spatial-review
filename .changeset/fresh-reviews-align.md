@@ -9,4 +9,5 @@ Align producer and consumer safety limits, preserve shared deferred asset
 resources while their canonical registration remains live, accept valid line
 and point geometry, reject non-renderable static assets, and validate bounded
 material references and geometry groups. Bare-host CLI discovery remains
-compatible with protocol URL normalization.
+compatible with protocol URL normalization. Derived stream offers and cloned
+typed-instance aliases remain within the same negotiated transfer ceiling.
