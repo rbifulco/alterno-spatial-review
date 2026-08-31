@@ -89,7 +89,8 @@ function loopback(origin: string) {
 }
 
 function positiveLimit(value: unknown, fallback: number, maximum = Number.MAX_SAFE_INTEGER) {
-  return Number.isFinite(value) && Number(value) > 0 ? Math.min(maximum, Math.floor(Number(value))) : fallback;
+  const candidate = Number.isFinite(value) && Number(value) > 0 ? Math.floor(Number(value)) : fallback;
+  return Math.min(maximum, candidate);
 }
 
 function offeredLimit(value: unknown) {

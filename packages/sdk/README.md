@@ -187,8 +187,10 @@ world transform, bounds, and immutable overview/detail revisions before calling
 the asynchronous producer. The producer receives the lower byte budget, request
 priority, an `AbortSignal`, and progress callback. The bridge enforces bounded
 priority queues, aggregate in-flight bytes, cancellation, and revision-aware
-`notModified` responses. Streamed instance matrices use owned `Float32Array`
-buffers; ordinary JSON exports retain nested number arrays.
+`notModified` responses. Configured and derived aggregate limits are clamped
+to the protocol ceiling. Streamed instance matrices use owned `Float32Array`
+buffers, and the byte budget reserves every owned copy when source views alias
+one buffer; ordinary JSON exports retain nested number arrays.
 
 Cancellation releases the bridge's queue and aggregate-byte reservation
 immediately and suppresses late producer results. Producers remain responsible
