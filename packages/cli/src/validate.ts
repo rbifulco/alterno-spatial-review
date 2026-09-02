@@ -186,6 +186,7 @@ export async function validateWebsite(websiteUrl: string, options: ValidateWebsi
     `Scene: ${discovery.scene ? "yes" : "no"}`,
     `Assets: ${discovery.assets ? "yes" : "no"}`,
     `Live: ${discovery.liveCapture ? "yes" : "no"}`,
+    `Live editor policy: ${discovery.capabilities?.liveCapture?.editorOriginPolicy?.mode ?? "unspecified"}`,
     `Open review: ${spatialReviewEditorUrl(discovery.websiteUrl, { discoveryUrl: resolved.discoveryUrl })}`,
     "",
   ].join("\n");

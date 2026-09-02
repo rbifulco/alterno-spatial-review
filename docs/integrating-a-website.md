@@ -21,9 +21,9 @@ The official editor origin is `https://spatial-review.alterno.dev`.
 Use the recorded permission decision for `allowOfficialEditor` and
 `allowedOrigins`.
 
-A loopback website accepts requests from other loopback origins. Use this
-exception only for local development. Production websites use the configured
-exact-origin policy.
+A loopback website accepts requests from other loopback origins only when
+`allowLoopbackPeers: true`. Use this explicit opt-in only for local development.
+Production websites use the configured exact-origin policy.
 
 Apply the framing decision from the permission record. When the website uses
 Content Security Policy, add the approved origin to the HTTP response header:
@@ -50,12 +50,18 @@ import {
   SceneAssetRegistry,
   attachSceneAssetRegistryBridge,
   attachSpatialReviewDiscoveryBridge,
+  createSpatialReviewEditorAuthorization,
 } from "@alterno-dev/spatial-review";
 
-const authorization = {
+const authorization = createSpatialReviewEditorAuthorization({
   allowOfficialEditor: true, // Use the recorded permission decision.
   allowedOrigins: [],
-};
+  allowLoopbackPeers: false, // Opt in only for cross-origin local development.
+  advertiseEditorOriginPolicy: {
+    // Explicit public disclosure; must equal the complete finite runtime set.
+    publicOrigins: ["https://spatial-review.alterno.dev"],
+  },
+});
 
 attachSpatialReviewDiscoveryBridge({
   name: "My spatial project",
@@ -76,13 +82,26 @@ registry.register({
 registry.registerNavigationSequence(arrivalJourneyForReview);
 
 const detachCapture = attachSceneAssetRegistryBridge(registry, {
-  ...authorization,
+  authorization,
   maxGeometryBytes: 64 * 1024 * 1024,
   maxConcurrentAssetRequests: 2,
   maxInFlightBytes: 96 * 1024 * 1024,
   maxQueuedAssetRequests: 24,
 });
 ```
+
+The frozen `authorization` is reused by both bridges. Runtime `allowedOrigins`
+are never advertised by default. Browser discovery derives a policy only when
+`advertiseEditorOriginPolicy.publicOrigins` explicitly discloses exactly the
+complete finite runtime set; a mismatch fails during configuration. Dynamic
+`allowOrigin` authorization always leaves policy unspecified. Raw bridge option
+objects remain supported for runtime compatibility but cannot claim alignment
+with an explicit discovery policy. Separately deployed pages and static
+discovery documents cannot share the in-memory object; generate their public
+policy from the same reviewed deployment decision and verify it independently.
+Never use discovery metadata as authorization input. See
+[Editor-origin compatibility and live-capture rejection](editor-origin-authorization.md)
+for validation, consumer state, and mixed-version rules.
 
 This example uses the current catalog lifecycle. It completes registration
 before bridge attachment. The first requested catalog becomes `catalog-ready`.

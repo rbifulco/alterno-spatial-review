@@ -152,7 +152,8 @@ editor origin.
   not require framing permission.
 - Both bridges always accept the website's own origin.
 - `allowOfficialEditor: false` disables official-editor authorization.
-- A loopback website accepts other loopback origins for local development.
+- A loopback website accepts other loopback origins only with the explicit
+  `allowLoopbackPeers: true` local-development opt-in.
 - The capture bridge sends a readiness announcement to its parent or opener
   before it authorizes a request. This announcement contains build identity,
   counts, capabilities, and transfer limits. It contains no catalog or texture
@@ -357,7 +358,8 @@ asset, component, material, texture, and journey to authoritative source.
 ## 5. Configure development transport
 
 Configure only the recorded development editors. The SDK always accepts the
-website's own origin. A loopback website also accepts other loopback origins.
+website's own origin. A loopback website accepts other loopback origins only
+when the integration explicitly sets `allowLoopbackPeers: true`.
 Keep the existing security policy. Add a framing exception only to the capture
 and discovery routes that the development editor must embed.
 

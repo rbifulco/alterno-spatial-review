@@ -111,6 +111,13 @@ reporting steps.
 > Registered texture URL strings are part of review data. Remove credentials,
 > signed query tokens, and other secrets from those strings before bridge
 > attachment.
+>
+> Websites may advertise an optional editor-origin compatibility policy and the
+> capture bridge explicitly rejects a correlated unauthorized handshake without
+> exposing scene data. The advertised policy improves preflight UX but never
+> replaces runtime origin checks. See the
+> [editor-origin authorization contract](docs/editor-origin-authorization.md).
+>
 > When the editor embeds the discovery page or capture page, that page must
 > permit framing by the exact editor origin. An opener-based popup does not
 > require a framing exception.
@@ -138,15 +145,24 @@ import {
   SceneAssetRegistry,
   attachSceneAssetRegistryBridge,
   attachSpatialReviewDiscoveryBridge,
+  createSpatialReviewEditorAuthorization,
 } from "@alterno-dev/spatial-review";
+
+const authorization = createSpatialReviewEditorAuthorization({
+  // Use true only after the user approves the official hosted editor.
+  allowOfficialEditor: true,
+  // Different loopback ports are trusted only with an explicit local-dev opt-in.
+  allowLoopbackPeers: false,
+  // Public discovery is opt-in and must list every finite runtime editor origin.
+  advertiseEditorOriginPolicy: {
+    publicOrigins: ["https://spatial-review.alterno.dev"],
+  },
+});
 
 attachSpatialReviewDiscoveryBridge({
   name: "My spatial project",
   liveCapture: "/?spatial-review-capture=1",
-}, {
-  // Use true only after the user approves the official hosted editor.
-  allowOfficialEditor: true,
-});
+}, authorization);
 
 const registry = new SceneAssetRegistry("project-v1");
 
@@ -184,16 +200,15 @@ registry.registerNavigationSequence({
   }],
 });
 
-attachSceneAssetRegistryBridge(registry, {
-  // Use false to deny the official editor; add self-hosted tools separately.
-  allowOfficialEditor: true,
-});
+attachSceneAssetRegistryBridge(registry, authorization);
 ```
 
 `allowOfficialEditor` defaults to `true`, but the example spells it out so the
-authorization is visible in source. Loopback origins are accepted during local
-development. Additional production editors must be listed explicitly in
-`allowedOrigins`.
+authorization is visible in source. Cross-origin loopback access requires
+`allowLoopbackPeers: true` during local development. Additional production
+editors must be exact canonical HTTPS origins in `allowedOrigins`. Runtime
+origins stay private unless an immutable shared configuration explicitly lists
+the complete finite set in `advertiseEditorOriginPolicy.publicOrigins`.
 
 Navigation sequences are semantic camera journeys rather than generic splines.
 They keep camera position, aim, journey stops, segment timing, lens transitions,

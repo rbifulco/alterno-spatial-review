@@ -91,7 +91,30 @@ test("CLI keeps old root-only producers compatible and prints attempted URLs", a
   assert.match(output, /Compatible: Legacy root/);
   assert.match(output, new RegExp(`Discovery: ${root.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
   assert.match(output, /compatible \(valid discovery document\)/);
+  assert.match(output, /Live editor policy: unspecified/);
   assert.match(output, /discovery=https%3A%2F%2Fproject\.example%2F\.well-known%2Fspatial-review\.json/);
+});
+
+test("CLI validates and reports an advertised editor-origin policy", async () => {
+  const output = await validateWebsite("https://project.example/app/", {
+    fetch: async (url) => jsonResponse(url, {
+      ...projectDiscovery,
+      websiteUrl: "https://project.example/app/",
+      capabilities: { liveCapture: { editorOriginPolicy: { mode: "allowlist", origins: ["https://editor.example"] } } },
+    }),
+  });
+  assert.match(output, /Live editor policy: allowlist/);
+
+  await assert.rejects(
+    resolveWebsiteDiscovery("https://project.example/app/", {
+      fetch: async (url) => jsonResponse(url, {
+        ...projectDiscovery,
+        websiteUrl: "https://project.example/app/",
+        capabilities: { liveCapture: { editorOriginPolicy: { mode: "allowlist", origins: ["*"] } } },
+      }),
+    }),
+    /absolute URL origin/,
+  );
 });
 
 test("CLI rejects discovery redirects that escape the website origin", async () => {

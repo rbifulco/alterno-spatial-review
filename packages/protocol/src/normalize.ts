@@ -1,5 +1,5 @@
 import { SPATIAL_REVIEW_BUNDLE_SCHEMA, SPATIAL_REVIEW_DISCOVERY_PATH, SPATIAL_REVIEW_DISCOVERY_SCHEMA } from "./constants.js";
-import type { SpatialReviewBundle, SpatialReviewDiscovery } from "./types.js";
+import type { SpatialReviewBundle, SpatialReviewDiscovery, SpatialReviewEditorOriginPolicy } from "./types.js";
 
 function record(value: unknown, label: string) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${label} must be a JSON object.`);
@@ -11,6 +11,7 @@ function webUrl(value: string, base: string, label: string) {
   try { url = new URL(value, base); } catch { throw new Error(`${label} is not a valid URL.`); }
   if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error(`${label} must use HTTP or HTTPS.`);
   if (url.username || url.password) throw new Error(`${label} must not contain credentials.`);
+  if (url.hostname.includes("*")) throw new Error(`${label} must not contain wildcards.`);
   url.hash = "";
   return url.href;
 }
@@ -19,6 +20,61 @@ function optionalUrl(value: unknown, base: string, label: string) {
   if (value === undefined || value === null || value === "") return undefined;
   if (typeof value !== "string") throw new Error(`${label} must be a URL string.`);
   return webUrl(value, base, label);
+}
+
+function loopbackHostname(hostname: string) {
+  const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  return normalized === "localhost" || normalized === "127.0.0.1" || normalized === "::1";
+}
+
+function absoluteOrigin(value: unknown, label: string) {
+  if (typeof value !== "string" || !value) throw new Error(`${label} must be an absolute URL origin.`);
+  let url: URL;
+  try { url = new URL(value); } catch { throw new Error(`${label} must be an absolute URL origin.`); }
+  if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error(`${label} must use HTTP or HTTPS.`);
+  if (url.username || url.password) throw new Error(`${label} must not contain credentials.`);
+  if (url.hostname.includes("*")) throw new Error(`${label} must not contain wildcards.`);
+  if (value !== url.origin) throw new Error(`${label} must be the canonical origin without a path, query, or fragment.`);
+  if (url.protocol !== "https:" && !loopbackHostname(url.hostname)) throw new Error(`${label} must use HTTPS unless it is a loopback development origin.`);
+  return url.origin;
+}
+
+export function normalizeSpatialReviewProducerOrigin(value: string) {
+  let url: URL;
+  try { url = new URL(value); } catch { throw new Error("producerUrl must be an absolute HTTP(S) URL."); }
+  if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("producerUrl must use HTTP or HTTPS.");
+  if (url.username || url.password) throw new Error("producerUrl must not contain credentials.");
+  if (url.hostname.includes("*")) throw new Error("producerUrl must not contain wildcards.");
+  if (url.protocol !== "https:" && !loopbackHostname(url.hostname)) throw new Error("producerUrl must use HTTPS unless it is a loopback development URL.");
+  return url.origin;
+}
+
+/** Validate and canonicalize public discovery metadata. This is advisory only;
+ * producers must still authorize the observed runtime message origin. */
+export function normalizeSpatialReviewEditorOriginPolicy(value: unknown): SpatialReviewEditorOriginPolicy {
+  const policy = record(value, "editorOriginPolicy");
+  if (policy.mode !== "allowlist" && policy.mode !== "same-origin" && policy.mode !== "any") throw new Error("editorOriginPolicy.mode must be allowlist, same-origin, or any.");
+  if (policy.allowLoopbackPeers !== undefined && typeof policy.allowLoopbackPeers !== "boolean") throw new Error("editorOriginPolicy.allowLoopbackPeers must be boolean when present.");
+  if (policy.mode === "allowlist") {
+    if (!Array.isArray(policy.origins) || policy.origins.length === 0) throw new Error("editorOriginPolicy.origins must be a non-empty allowlist.");
+    const origins = policy.origins.map((origin, index) => absoluteOrigin(origin, `editorOriginPolicy.origins[${index}]`));
+    if (new Set(origins).size !== origins.length) throw new Error("editorOriginPolicy.origins must not contain duplicates.");
+    return { mode: "allowlist", origins, ...(policy.allowLoopbackPeers === undefined ? {} : { allowLoopbackPeers: policy.allowLoopbackPeers }) };
+  }
+  if (policy.origins !== undefined) throw new Error(`editorOriginPolicy.origins is not allowed in ${policy.mode} mode.`);
+  return { mode: policy.mode, ...(policy.allowLoopbackPeers === undefined ? {} : { allowLoopbackPeers: policy.allowLoopbackPeers }) };
+}
+
+/** Return the policy's preflight result for an editor and the live producer.
+ * Runtime authorization remains mandatory even when this returns true. */
+export function editorOriginPolicyAllows(policy: SpatialReviewEditorOriginPolicy, editorOrigin: string, producerUrl: string) {
+  const normalized = normalizeSpatialReviewEditorOriginPolicy(policy);
+  const editor = absoluteOrigin(editorOrigin, "editorOrigin");
+  const producer = normalizeSpatialReviewProducerOrigin(producerUrl);
+  if (normalized.allowLoopbackPeers && loopbackHostname(new URL(editor).hostname) && loopbackHostname(new URL(producer).hostname)) return true;
+  if (normalized.mode === "any") return true;
+  if (normalized.mode === "same-origin") return editor === producer;
+  return normalized.origins.includes(editor);
 }
 
 export function normalizeWebsiteUrl(value: string) {
@@ -65,6 +121,18 @@ export function normalizeSpatialReviewDiscovery(payload: unknown, discoveryUrl: 
   const value = record(payload, "Spatial Review discovery document");
   if (value.schema !== SPATIAL_REVIEW_DISCOVERY_SCHEMA) throw new Error(`Unsupported discovery schema. Expected ${SPATIAL_REVIEW_DISCOVERY_SCHEMA}.`);
   if (value.version !== 1) throw new Error("Unsupported Spatial Review discovery version.");
+  let capabilities: SpatialReviewDiscovery["capabilities"];
+  if (value.capabilities !== undefined) {
+    const advertised = record(value.capabilities, "capabilities");
+    if (advertised.liveCapture !== undefined) {
+      const liveCapture = record(advertised.liveCapture, "capabilities.liveCapture");
+      capabilities = {
+        liveCapture: liveCapture.editorOriginPolicy === undefined
+          ? {}
+          : { editorOriginPolicy: normalizeSpatialReviewEditorOriginPolicy(liveCapture.editorOriginPolicy) },
+      };
+    } else capabilities = {};
+  }
   const result: SpatialReviewDiscovery = {
     schema: SPATIAL_REVIEW_DISCOVERY_SCHEMA,
     version: 1,
@@ -73,8 +141,10 @@ export function normalizeSpatialReviewDiscovery(payload: unknown, discoveryUrl: 
     scene: optionalUrl(value.scene, normalizedDiscoveryUrl, "scene"),
     assets: optionalUrl(value.assets, normalizedDiscoveryUrl, "assets"),
     liveCapture: optionalUrl(value.liveCapture, normalizedDiscoveryUrl, "liveCapture"),
+    ...(capabilities === undefined ? {} : { capabilities }),
   };
   if (!result.scene && !result.assets && !result.liveCapture) throw new Error("The website advertises no scene, asset, or live-capture transport.");
+  if (result.capabilities?.liveCapture?.editorOriginPolicy && !result.liveCapture) throw new Error("editorOriginPolicy requires an advertised liveCapture URL.");
   return result;
 }
 

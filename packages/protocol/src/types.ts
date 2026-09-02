@@ -6,6 +6,8 @@ import type {
   SPATIAL_REVIEW_DISCOVERY_SCHEMA,
   SPATIAL_REVIEW_DISCOVERY_REQUEST,
   SPATIAL_REVIEW_DISCOVERY_RESPONSE,
+  SPATIAL_REVIEW_CONNECTION_REJECTED,
+  SPATIAL_REVIEW_EDITOR_ORIGIN_NOT_AUTHORIZED,
   SPATIAL_REVIEW_INDEX_SCHEMA,
   SPATIAL_REVIEW_RESOURCE_REQUEST,
   SPATIAL_REVIEW_RESOURCE_RESPONSE,
@@ -188,7 +190,14 @@ export type SpatialReviewScene = {
 
 export type SpatialReviewIndex = { schema: typeof SPATIAL_REVIEW_INDEX_SCHEMA | typeof LEGACY_SPATIAL_REVIEW_INDEX_SCHEMA; buildId: string; generatedAt: string; scene: SpatialReviewScene; assetCatalog: AssetReviewDocument3D };
 
-export type SpatialReviewDiscovery = { schema: typeof SPATIAL_REVIEW_DISCOVERY_SCHEMA; version: 1; name: string; websiteUrl: string; scene?: string; assets?: string; liveCapture?: string };
+export type SpatialReviewEditorOriginPolicy =
+  | { mode: "allowlist"; origins: string[]; /** Allows different ports only when both peers are loopback. */ allowLoopbackPeers?: boolean }
+  | { mode: "same-origin"; origins?: never; /** Allows different ports only when both peers are loopback. */ allowLoopbackPeers?: boolean }
+  | { mode: "any"; origins?: never; /** Allows different ports only when both peers are loopback. */ allowLoopbackPeers?: boolean };
+export type SpatialReviewDiscoveryCapabilities = {
+  liveCapture?: { editorOriginPolicy?: SpatialReviewEditorOriginPolicy };
+};
+export type SpatialReviewDiscovery = { schema: typeof SPATIAL_REVIEW_DISCOVERY_SCHEMA; version: 1; name: string; websiteUrl: string; scene?: string; assets?: string; liveCapture?: string; capabilities?: SpatialReviewDiscoveryCapabilities };
 export type SpatialReviewBundle = { schema: typeof SPATIAL_REVIEW_BUNDLE_SCHEMA; websiteUrl: string; discoveryUrl: string; discovery: SpatialReviewDiscovery; scene?: unknown; assets?: unknown };
 
 export type SpatialReviewDiscoveryRequestMessage = {
@@ -200,6 +209,13 @@ export type SpatialReviewDiscoveryResponseMessage = {
   requestId: string;
   discoveryUrl: string;
   discovery: SpatialReviewDiscovery;
+};
+export type SpatialReviewConnectionRejectedMessage = {
+  type: typeof SPATIAL_REVIEW_CONNECTION_REJECTED;
+  requestId: string;
+  code: typeof SPATIAL_REVIEW_EDITOR_ORIGIN_NOT_AUTHORIZED;
+  /** Untrusted display text. Consumers must render it as text, never HTML. */
+  message?: string;
 };
 
 export type SpatialReviewResourceTransferCapability = typeof SPATIAL_REVIEW_RESOURCE_TRANSFER_CAPABILITY;

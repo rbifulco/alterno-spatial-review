@@ -1,0 +1,16 @@
+{
+  "schema": "spatial-review-discovery/v1",
+  "version": 1,
+  "name": "Editor origin policy fixture",
+  "websiteUrl": "/",
+  "liveCapture": "/capture",
+  "capabilities": {
+    "liveCapture": {
+      "editorOriginPolicy": {
+        "mode": "allowlist",
+        "origins": ["https://spatial-review.alterno.dev"],
+        "allowLoopbackPeers": true
+      }
+    }
+  }
+}

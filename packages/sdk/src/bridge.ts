@@ -2,7 +2,8 @@ import {
   LEGACY_SPATIAL_REVIEW_CATALOG,
   LEGACY_SPATIAL_REVIEW_READY,
   LEGACY_SPATIAL_REVIEW_REQUEST,
-  OFFICIAL_SPATIAL_REVIEW_EDITOR_ORIGIN,
+  SPATIAL_REVIEW_CONNECTION_REJECTED,
+  SPATIAL_REVIEW_EDITOR_ORIGIN_NOT_AUTHORIZED,
   SPATIAL_REVIEW_ASSEMBLIES_CAPABILITY,
   SPATIAL_REVIEW_ASSET_CANCEL,
   SPATIAL_REVIEW_ASSET_PROGRESS,
@@ -23,6 +24,7 @@ import {
   type SpatialReviewAssetRequest,
   type SpatialReviewAssetResponse,
   type SpatialReviewCatalogRequest,
+  type SpatialReviewConnectionRejectedMessage,
   type SpatialReviewProfile,
   type SpatialReviewResourceRequest,
   type SpatialReviewResourceResponse,
@@ -30,16 +32,18 @@ import {
   type SpatialReviewSourceStatusMessage,
 } from "@alterno-dev/spatial-review-protocol";
 import { prepareAssetTransfer } from "./geometry-transfer.js";
+import {
+  resolveSpatialReviewEditorAuthorization,
+  spatialReviewEditorOriginAllowed,
+  type SpatialReviewEditorAuthorization,
+  type SpatialReviewEditorAuthorizationOptions,
+} from "./origin-authorization.js";
 import type { SceneAssetRegistry, SceneAssetRepresentationProgress } from "./registry.js";
 
 const DEFAULT_MAX_RESOURCE_BYTES = 16 * 1024 * 1024;
 const DEFAULT_MAX_GEOMETRY_BYTES = 64 * 1024 * 1024;
 
-export type SceneAssetRegistryBridgeOptions = {
-  /** Trust the official Alterno editor origin. Defaults to true. */
-  allowOfficialEditor?: boolean;
-  allowedOrigins?: Iterable<string>;
-  allowOrigin?: (origin: string) => boolean;
+type SceneAssetRegistryBridgeRuntimeOptions = {
   maxResourceBytes?: number;
   /** Outer ceiling for a single legacy or streamed representation. */
   maxGeometryBytes?: number;
@@ -48,6 +52,11 @@ export type SceneAssetRegistryBridgeOptions = {
   maxQueuedAssetRequests?: number;
   progressIntervalMs?: number;
 };
+
+export type SceneAssetRegistryBridgeOptions = SceneAssetRegistryBridgeRuntimeOptions & (
+  | (SpatialReviewEditorAuthorizationOptions & { authorization?: never })
+  | { authorization: SpatialReviewEditorAuthorization; allowOfficialEditor?: never; allowedOrigins?: never; allowOrigin?: never; allowLoopbackPeers?: never }
+);
 
 type StreamJob = {
   target: Window;
@@ -80,15 +89,6 @@ type PeerState = {
   deliveredRepresentations: Set<string>;
 };
 
-function loopback(origin: string) {
-  try {
-    const hostname = new URL(origin).hostname.toLowerCase().replace(/^\[|\]$/g, "");
-    return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
-  } catch {
-    return false;
-  }
-}
-
 function positiveLimit(value: unknown, fallback: number, maximum = Number.MAX_SAFE_INTEGER) {
   const candidate = Number.isFinite(value) && Number(value) > 0 ? Math.floor(Number(value)) : fallback;
   return Math.min(maximum, candidate);
@@ -106,12 +106,8 @@ function priorityValue(priority: "interactive" | "visible" | "background") {
 }
 
 export function attachSceneAssetRegistryBridge(registry: SceneAssetRegistry, options: SceneAssetRegistryBridgeOptions = {}) {
-  const configured = new Set([...(options.allowedOrigins ?? [])].flatMap((origin) => {
-    try { return [new URL(origin).origin]; } catch { return []; }
-  }));
-  if (options.allowOfficialEditor !== false) configured.add(OFFICIAL_SPATIAL_REVIEW_EDITOR_ORIGIN);
-  configured.add(window.location.origin);
-  const allowed = (origin: string) => configured.has(origin) || Boolean(options.allowOrigin?.(origin)) || (loopback(window.location.origin) && loopback(origin));
+  const authorization = resolveSpatialReviewEditorAuthorization(options);
+  const allowed = (origin: string) => spatialReviewEditorOriginAllowed(authorization, window.location.origin, origin);
   const maxResourceBytes = positiveLimit(options.maxResourceBytes, DEFAULT_MAX_RESOURCE_BYTES, 1024 * 1024 * 1024);
   const maxGeometryBytes = positiveLimit(options.maxGeometryBytes, DEFAULT_MAX_GEOMETRY_BYTES, 1024 * 1024 * 1024);
   const maxConcurrentRequests = positiveLimit(options.maxConcurrentAssetRequests, 2, 16);
@@ -456,8 +452,20 @@ export function attachSceneAssetRegistryBridge(registry: SceneAssetRegistry, opt
   };
 
   const onMessage = (event: MessageEvent) => {
-    if (disposed || !allowed(event.origin) || (event.source !== window.parent && event.source !== window.opener)) return;
+    if (disposed || (event.source !== window.parent && event.source !== window.opener)) return;
     const request = event.data as (SpatialReviewCatalogRequest & { resourceId?: string; assetId?: string }) | null;
+    if (!allowed(event.origin)) {
+      if ((request?.type === SPATIAL_REVIEW_REQUEST || request?.type === LEGACY_SPATIAL_REVIEW_REQUEST)
+        && typeof request.requestId === "string" && request.requestId.length > 0 && request.requestId.length <= 200) {
+        post(event.source as Window, event.origin, {
+          type: SPATIAL_REVIEW_CONNECTION_REJECTED,
+          requestId: request.requestId,
+          code: SPATIAL_REVIEW_EDITOR_ORIGIN_NOT_AUTHORIZED,
+          message: "Use an authorized editor origin or a bundled scene snapshot.",
+        } satisfies SpatialReviewConnectionRejectedMessage);
+      }
+      return;
+    }
     if (request?.type === SPATIAL_REVIEW_RESOURCE_REQUEST) { void onResourceRequest(event, request as SpatialReviewResourceRequest); return; }
     if (request?.type === SPATIAL_REVIEW_ASSET_CANCEL) { onCancel(event, event.data as SpatialReviewAssetCancelMessage); return; }
     if (request?.type === SPATIAL_REVIEW_ASSET_REQUEST) {

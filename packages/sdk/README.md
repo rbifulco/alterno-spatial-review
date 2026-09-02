@@ -41,25 +41,52 @@ remove credentials and secrets from those strings before bridge attachment.
 
 `allowOfficialEditor: true` enables the official editor origin.
 `allowOfficialEditor: false` disables it. `allowedOrigins` adds exact
-self-hosted editor origins.
+self-hosted editor origins. `allowLoopbackPeers: true` explicitly enables
+cross-origin loopback development; it defaults to `false`.
 
-Both bridges always accept the website's own origin. When the website origin is
-loopback, they also accept other loopback origins. `allowOfficialEditor: false`
-does not disable these built-in cases.
+Both bridges always accept the producer's own origin. A different loopback
+origin is a separate security principal and is accepted only with the explicit
+loopback opt-in. Earlier SDK versions allowed cross-origin loopback implicitly;
+existing local integrations must set `allowLoopbackPeers: true` to retain that
+behavior after upgrading.
 
 ```ts
-attachSpatialReviewDiscoveryBridge(registration, {
+import { createSpatialReviewEditorAuthorization } from "@alterno-dev/spatial-review";
+
+const authorization = createSpatialReviewEditorAuthorization({
   allowOfficialEditor: true,
+  allowedOrigins: [],
+  allowLoopbackPeers: false,
+  advertiseEditorOriginPolicy: {
+    publicOrigins: ["https://spatial-review.alterno.dev"],
+  },
 });
 
-attachSceneAssetRegistryBridge(registry, {
-  allowOfficialEditor: true,
-});
+attachSpatialReviewDiscoveryBridge(registration, authorization);
+attachSceneAssetRegistryBridge(registry, authorization);
 ```
 
 `spatialReviewEditorUrl(websiteUrl)` creates a hosted-editor deep link that
 connects to the supplied website. It does not bypass the website's bridge origin
 checks.
+
+`allowedOrigins` accepts only exact canonical origins: no credentials, paths,
+queries, fragments, wildcards, default-port aliases, or insecure non-loopback
+HTTP. Invalid input fails before a bridge listener is attached.
+
+For browser discovery, runtime origins remain private by default. The SDK
+derives `capabilities.liveCapture.editorOriginPolicy` only from a frozen shared
+authorization created with an explicit
+`advertiseEditorOriginPolicy.publicOrigins` disclosure. That public list must
+exactly match every finite non-same-origin runtime origin, including the
+official editor when enabled. Reuse the same authorization with both bridges.
+Raw option objects still configure runtime access but never advertise a policy,
+and cannot accompany an explicit policy. Dynamic `allowOrigin` authorization
+always remains unspecified. Discovery metadata never authorizes a request. A
+recognized unauthorized catalog handshake with a valid request ID receives a
+correlated, exact-origin
+`spatial-review:connection-rejected` response and no scene data. See the
+[complete authorization contract](../../docs/editor-origin-authorization.md).
 
 When an editor embeds a website page, that page must permit framing by the
 editor. An editor that opens the page as a popup can use the opener bridge and

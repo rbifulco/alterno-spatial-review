@@ -21,6 +21,10 @@ unavailable response (network failure or non-success HTTP status) from an invali
 JSON or protocol document. Relative discovery fields resolve from the final URL
 of the successful same-origin response.
 
+The success report names an advertised live-capture editor-origin policy mode,
+or `unspecified` for existing producers. The CLI validates policy syntax but is
+not a browser editor and does not use the metadata as authorization.
+
 Static scene and asset documents must use the website origin by default, and
 every redirect is checked before it is followed. This keeps validation of a
 public website from reaching unrelated internal or local services. If a site

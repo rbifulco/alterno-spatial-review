@@ -2,13 +2,20 @@ import {
   SPATIAL_REVIEW_DISCOVERY_REQUEST,
   SPATIAL_REVIEW_DISCOVERY_RESPONSE,
   SPATIAL_REVIEW_DISCOVERY_SCHEMA,
-  OFFICIAL_SPATIAL_REVIEW_EDITOR_ORIGIN,
   discoveryUrlsForWebsite,
   normalizeSpatialReviewDiscovery,
+  normalizeSpatialReviewEditorOriginPolicy,
   type SpatialReviewDiscovery,
+  type SpatialReviewDiscoveryCapabilities,
   type SpatialReviewDiscoveryRequestMessage,
   type SpatialReviewDiscoveryResponseMessage,
 } from "@alterno-dev/spatial-review-protocol";
+import {
+  resolveSpatialReviewEditorAuthorization,
+  spatialReviewEditorOriginAllowed,
+  spatialReviewEditorOriginPolicy,
+  type SpatialReviewEditorAuthorizationSource,
+} from "./origin-authorization.js";
 
 export type SpatialReviewDiscoveryRegistration = {
   name: string;
@@ -18,34 +25,25 @@ export type SpatialReviewDiscoveryRegistration = {
   scene?: string;
   assets?: string;
   liveCapture?: string;
+  capabilities?: SpatialReviewDiscoveryCapabilities;
 };
 
-export type SpatialReviewDiscoveryBridgeOptions = {
-  /** Trust the official Alterno editor origin. Defaults to true. */
-  allowOfficialEditor?: boolean;
-  allowedOrigins?: Iterable<string>;
-  allowOrigin?: (origin: string) => boolean;
-};
+export type SpatialReviewDiscoveryBridgeOptions = SpatialReviewEditorAuthorizationSource;
 
-function loopback(origin: string) {
-  try {
-    const hostname = new URL(origin).hostname.toLowerCase().replace(/^\[|\]$/g, "");
-    return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
-  } catch { return false; }
+function policiesMatch(left: unknown, right: unknown) {
+  const first = normalizeSpatialReviewEditorOriginPolicy(left);
+  const second = normalizeSpatialReviewEditorOriginPolicy(right);
+  if (first.mode !== second.mode || first.allowLoopbackPeers !== second.allowLoopbackPeers) return false;
+  if (first.mode !== "allowlist" || second.mode !== "allowlist") return true;
+  return first.origins.length === second.origins.length && first.origins.every((entry) => second.origins.includes(entry));
 }
 
 export function attachSpatialReviewDiscoveryBridge(
   registration: SpatialReviewDiscoveryRegistration,
   options: SpatialReviewDiscoveryBridgeOptions = {},
 ) {
-  const configured = new Set([...(options.allowedOrigins ?? [])].flatMap((origin) => {
-    try { return [new URL(origin).origin]; } catch { return []; }
-  }));
-  if (options.allowOfficialEditor !== false) configured.add(OFFICIAL_SPATIAL_REVIEW_EDITOR_ORIGIN);
-  configured.add(window.location.origin);
-  const allowed = (origin: string) => configured.has(origin)
-    || Boolean(options.allowOrigin?.(origin))
-    || (loopback(window.location.origin) && loopback(origin));
+  const authorization = resolveSpatialReviewEditorAuthorization(options);
+  const allowed = (origin: string) => spatialReviewEditorOriginAllowed(authorization, window.location.origin, origin);
   const { discoveryUrl: registeredDiscoveryUrl, ...documentRegistration } = registration;
   const websiteUrl = new URL(registration.websiteUrl ?? window.location.origin, window.location.href).href;
   const discoveryUrl = discoveryUrlsForWebsite(websiteUrl, registeredDiscoveryUrl)[0];
@@ -55,6 +53,15 @@ export function attachSpatialReviewDiscoveryBridge(
     ...documentRegistration,
     websiteUrl,
   }, discoveryUrl);
+  const declaredPolicy = discovery.capabilities?.liveCapture?.editorOriginPolicy;
+  const derivedPolicy = discovery.liveCapture ? spatialReviewEditorOriginPolicy(authorization, discovery.liveCapture) : undefined;
+  if (declaredPolicy && !derivedPolicy) throw new Error("An advertised editorOriginPolicy requires an explicitly disclosed shared authorization from createSpatialReviewEditorAuthorization().");
+  if (declaredPolicy && !policiesMatch(declaredPolicy, derivedPolicy)) {
+    throw new Error("The advertised editorOriginPolicy does not match the runtime editor authorization options.");
+  }
+  if (derivedPolicy) {
+    discovery.capabilities = { ...discovery.capabilities, liveCapture: { ...discovery.capabilities?.liveCapture, editorOriginPolicy: derivedPolicy } };
+  }
 
   const onMessage = (event: MessageEvent) => {
     if (!allowed(event.origin) || (event.source !== window.parent && event.source !== window.opener)) return;

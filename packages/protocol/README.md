@@ -16,6 +16,13 @@ before using this capability.
 The browser discovery request/response messages let an embedded website
 advertise its normalized discovery document without CORS or an editor backend.
 
+The optional discovery `capabilities.liveCapture.editorOriginPolicy` describes
+preflight compatibility for an editor origin. It is advisory; runtime
+authorization remains mandatory. Unauthorized catalog handshakes can receive a
+correlated `spatial-review:connection-rejected` response without scene data.
+Consumers can use `editorOriginPolicyAllows()` for preflight checks. Read the
+[contract, security rules, and mixed-version behavior](../../docs/editor-origin-authorization.md).
+
 ## Discovery locators
 
 `discoveryUrlForWebsite(websiteUrl)` remains the compatibility helper for the

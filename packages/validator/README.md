@@ -16,3 +16,8 @@ Deferred live-transfer validation is split by trust boundary:
 `validateSpatialReviewAssetProgress`, `validateSpatialReviewAssetCancel`, and
 `validateAssetInstanceData`. Supply the negotiated byte ceiling when validating
 a response or typed instance buffer.
+
+`validateSpatialReviewEditorOriginPolicy` checks advisory discovery policy,
+including exact canonical origins and loopback-only HTTP.
+`validateSpatialReviewConnectionRejected` checks the correlated live-capture
+authorization rejection. Its optional message remains untrusted display text.

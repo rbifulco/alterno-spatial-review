@@ -6,6 +6,8 @@ import {
   SPATIAL_REVIEW_ASSET_REQUEST,
   SPATIAL_REVIEW_ASSET_RESPONSE,
   SPATIAL_REVIEW_ASSET_STREAM_CAPABILITY,
+  SPATIAL_REVIEW_CONNECTION_REJECTED,
+  SPATIAL_REVIEW_EDITOR_ORIGIN_NOT_AUTHORIZED,
   SPATIAL_REVIEW_INDEX_SCHEMA,
   SPATIAL_REVIEW_MAX_ASSET_GEOMETRY_GROUPS,
   SPATIAL_REVIEW_MAX_ASSET_MATERIAL_REFERENCES,
@@ -14,6 +16,7 @@ import {
   SPATIAL_REVIEW_MAX_NODE_MATERIAL_IDS,
   SPATIAL_REVIEW_SOURCE_STATUS,
   normalizeSpatialReviewDiscovery,
+  normalizeSpatialReviewEditorOriginPolicy,
   validateSceneOwnership,
   type AssetInstanceData,
   type AssetReviewDocument3D,
@@ -23,7 +26,9 @@ import {
   type SpatialReviewAssetRequest,
   type SpatialReviewAssetResponse,
   type SpatialReviewAssetStreamOffer,
+  type SpatialReviewConnectionRejectedMessage,
   type SpatialReviewDiscovery,
+  type SpatialReviewEditorOriginPolicy,
   type SpatialReviewIndex,
   type SpatialReviewScene,
   type SpatialReviewSourceStatusMessage,
@@ -675,6 +680,10 @@ export function validateDiscovery(value: unknown, url: string): ValidationResult
   try { return { ok: true, value: normalizeSpatialReviewDiscovery(value, url) }; } catch (error) { return { ok: false, errors: [error instanceof Error ? error.message : "Invalid discovery document"] }; }
 }
 
+export function validateSpatialReviewEditorOriginPolicy(value: unknown): ValidationResult<SpatialReviewEditorOriginPolicy> {
+  try { return { ok: true, value: normalizeSpatialReviewEditorOriginPolicy(value) }; } catch (error) { return { ok: false, errors: [error instanceof Error ? error.message : "Invalid editor origin policy"] }; }
+}
+
 export function validateSceneDocument(value: unknown): ValidationResult<SpatialReviewScene> {
   const errors = sceneDocumentErrors(value);
   return errors.length ? { ok: false, errors } : { ok: true, value: value as SpatialReviewScene };
@@ -767,6 +776,18 @@ export function validateSpatialReviewAssetRequest(value: unknown): ValidationRes
     }
   }
   return errors.length ? { ok: false, errors } : { ok: true, value: value as SpatialReviewAssetRequest };
+}
+
+export function validateSpatialReviewConnectionRejected(value: unknown): ValidationResult<SpatialReviewConnectionRejectedMessage> {
+  const errors: string[] = [];
+  if (!object(value)) errors.push("Connection rejection must be an object.");
+  else {
+    if (value.type !== SPATIAL_REVIEW_CONNECTION_REJECTED) errors.push(`type must be ${SPATIAL_REVIEW_CONNECTION_REJECTED}.`);
+    if (!boundedId(value.requestId, 200)) errors.push("requestId must be a bounded non-empty identifier.");
+    if (value.code !== SPATIAL_REVIEW_EDITOR_ORIGIN_NOT_AUTHORIZED) errors.push(`code must be ${SPATIAL_REVIEW_EDITOR_ORIGIN_NOT_AUTHORIZED}.`);
+    if (value.message !== undefined && (typeof value.message !== "string" || value.message.length > 500)) errors.push("message must be at most 500 characters.");
+  }
+  return errors.length ? { ok: false, errors } : { ok: true, value: value as SpatialReviewConnectionRejectedMessage };
 }
 
 export function validateSpatialReviewAssetResponse(value: unknown, maxBytes = 64 * 1024 * 1024): ValidationResult<SpatialReviewAssetResponse> {

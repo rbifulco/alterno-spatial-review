@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import * as THREE from "three";
-import { SceneAssetRegistry, assetFromObject3DRoots, attachSceneAssetRegistryBridge, attachSpatialReviewDiscoveryBridge, buildThreeAsset, buildThreeAssetAsync, disposeThreeAsset } from "../packages/sdk/dist/index.js";
-import { OFFICIAL_SPATIAL_REVIEW_EDITOR_ORIGIN, SPATIAL_REVIEW_CATALOG, SPATIAL_REVIEW_DISCOVERY_REQUEST, SPATIAL_REVIEW_DISCOVERY_RESPONSE, SPATIAL_REVIEW_INDEX_SCHEMA, SPATIAL_REVIEW_REQUEST, SPATIAL_REVIEW_RESOURCE_REQUEST, SPATIAL_REVIEW_RESOURCE_RESPONSE, SPATIAL_REVIEW_RESOURCE_TRANSFER_CAPABILITY, discoveryUrlForWebsite, discoveryUrlsForWebsite, normalizeSpatialReviewDiscovery, spatialReviewEditorUrl } from "../packages/protocol/dist/index.js";
-import { validateAssetDocument, validateReviewIndex, validateSceneDocument } from "../packages/validator/dist/index.js";
+import { SceneAssetRegistry, assetFromObject3DRoots, attachSceneAssetRegistryBridge, attachSpatialReviewDiscoveryBridge, buildThreeAsset, buildThreeAssetAsync, createSpatialReviewEditorAuthorization, disposeThreeAsset, spatialReviewEditorOriginPolicy } from "../packages/sdk/dist/index.js";
+import { OFFICIAL_SPATIAL_REVIEW_EDITOR_ORIGIN, SPATIAL_REVIEW_CATALOG, SPATIAL_REVIEW_CONNECTION_REJECTED, SPATIAL_REVIEW_DISCOVERY_REQUEST, SPATIAL_REVIEW_DISCOVERY_RESPONSE, SPATIAL_REVIEW_EDITOR_ORIGIN_NOT_AUTHORIZED, SPATIAL_REVIEW_INDEX_SCHEMA, SPATIAL_REVIEW_REQUEST, SPATIAL_REVIEW_RESOURCE_REQUEST, SPATIAL_REVIEW_RESOURCE_RESPONSE, SPATIAL_REVIEW_RESOURCE_TRANSFER_CAPABILITY, discoveryUrlForWebsite, discoveryUrlsForWebsite, editorOriginPolicyAllows, normalizeSpatialReviewDiscovery, spatialReviewEditorUrl } from "../packages/protocol/dist/index.js";
+import { validateAssetDocument, validateDiscovery, validateReviewIndex, validateSceneDocument, validateSpatialReviewConnectionRejected, validateSpatialReviewEditorOriginPolicy } from "../packages/validator/dist/index.js";
 
 test("normalizes discovery URLs", () => {
   const url = discoveryUrlForWebsite("example.com/project");
@@ -63,6 +63,144 @@ test("normalizes a GitHub Pages project fixture against its successful document"
   assert.equal(discovery.liveCapture, "https://owner.github.io/project/?spatial-review-capture=1");
 });
 
+test("normalizes and evaluates advisory editor-origin policies", async () => {
+  const payload = JSON.parse(await readFile(new URL("./fixtures/editor-origin-policy/.well-known/spatial-review.json", import.meta.url), "utf8"));
+  const discovery = normalizeSpatialReviewDiscovery(payload, "https://site.example/.well-known/spatial-review.json");
+  const policy = discovery.capabilities.liveCapture.editorOriginPolicy;
+  assert.deepEqual(policy, {
+    mode: "allowlist",
+    origins: ["https://spatial-review.alterno.dev"],
+    allowLoopbackPeers: true,
+  });
+  assert.equal(editorOriginPolicyAllows(policy, "https://spatial-review.alterno.dev", discovery.liveCapture), true);
+  assert.equal(editorOriginPolicyAllows(policy, "https://editor.example", discovery.liveCapture), false);
+  assert.equal(editorOriginPolicyAllows(policy, "http://127.0.0.1:4400", "http://localhost:3000"), true);
+  assert.equal(editorOriginPolicyAllows({ mode: "same-origin" }, "https://site.example", discovery.liveCapture), true);
+  assert.equal(editorOriginPolicyAllows({ mode: "any" }, "https://editor.example", discovery.liveCapture), true);
+  assert.equal(validateDiscovery(payload, "https://site.example/.well-known/spatial-review.json").ok, true);
+});
+
+test("rejects unsafe or incoherent editor-origin policies", () => {
+  const invalid = [
+    { mode: "allowlist" },
+    { mode: "allowlist", origins: [] },
+    { mode: "allowlist", origins: ["*"] },
+    { mode: "allowlist", origins: ["http://editor.example"] },
+    { mode: "allowlist", origins: ["https://user:secret@editor.example"] },
+    { mode: "allowlist", origins: ["https://editor.example/path"] },
+    { mode: "allowlist", origins: ["https://editor.example/"] },
+    { mode: "same-origin", origins: ["https://editor.example"] },
+    { mode: "any", allowLoopbackPeers: "yes" },
+  ];
+  invalid.forEach((policy) => assert.equal(validateSpatialReviewEditorOriginPolicy(policy).ok, false));
+  assert.equal(validateSpatialReviewEditorOriginPolicy({ mode: "allowlist", origins: ["http://localhost:4400", "http://127.0.0.1:4500"] }).ok, true);
+  assert.equal(validateDiscovery({
+    schema: "spatial-review-discovery/v1", version: 1, name: "No live capture", scene: "/scene.json",
+    capabilities: { liveCapture: { editorOriginPolicy: { mode: "same-origin" } } },
+  }, "https://site.example/.well-known/spatial-review.json").ok, false);
+});
+
+test("shares a frozen authorization while keeping runtime origins private by default", () => {
+  const privateAuthorization = createSpatialReviewEditorAuthorization({
+    allowOfficialEditor: false,
+    allowedOrigins: ["https://internal-editor.example"],
+  });
+  assert.equal(Object.isFrozen(privateAuthorization), true);
+  assert.equal(Object.isFrozen(privateAuthorization.allowedOrigins), true);
+  assert.equal(spatialReviewEditorOriginPolicy(privateAuthorization, "https://site.example/capture"), undefined);
+
+  const advertisedAuthorization = createSpatialReviewEditorAuthorization({
+    allowOfficialEditor: false,
+    allowedOrigins: ["https://editor.example"],
+    allowLoopbackPeers: true,
+    advertiseEditorOriginPolicy: { publicOrigins: ["https://editor.example"] },
+  });
+  assert.deepEqual(
+    spatialReviewEditorOriginPolicy(advertisedAuthorization, "https://site.example/capture"),
+    { mode: "allowlist", origins: ["https://site.example", "https://editor.example"], allowLoopbackPeers: true },
+  );
+
+  const dynamicAuthorization = createSpatialReviewEditorAuthorization({ allowOrigin: (origin) => origin.endsWith(".example") });
+  assert.equal(spatialReviewEditorOriginPolicy(dynamicAuthorization, "https://site.example/capture"), undefined);
+  assert.throws(() => createSpatialReviewEditorAuthorization({
+    allowOrigin: () => true,
+    advertiseEditorOriginPolicy: { publicOrigins: [OFFICIAL_SPATIAL_REVIEW_EDITOR_ORIGIN] },
+  }), /Dynamic allowOrigin/);
+  assert.throws(() => createSpatialReviewEditorAuthorization({
+    allowOfficialEditor: false,
+    allowedOrigins: ["https://internal-editor.example"],
+    advertiseEditorOriginPolicy: { publicOrigins: ["https://public-editor.example"] },
+  }), /exactly match/);
+  assert.throws(() => createSpatialReviewEditorAuthorization({
+    allowOfficialEditor: false,
+    advertiseEditorOriginPolicy: {},
+  }), /explicitly provide publicOrigins/);
+  assert.throws(() => attachSceneAssetRegistryBridge(new SceneAssetRegistry("mixed-authorization"), {
+    authorization: advertisedAuthorization,
+    allowedOrigins: ["https://other.example"],
+  }), /Do not mix/);
+});
+
+test("advertised policy derivation enforces producer HTTPS except on loopback", () => {
+  const authorization = createSpatialReviewEditorAuthorization({
+    allowOfficialEditor: false,
+    allowLoopbackPeers: true,
+    advertiseEditorOriginPolicy: { publicOrigins: [] },
+  });
+  assert.throws(
+    () => spatialReviewEditorOriginPolicy(authorization, "http://site.example/capture"),
+    /producerUrl must use HTTPS/,
+  );
+
+  const loopbackPolicy = spatialReviewEditorOriginPolicy(authorization, "http://127.0.0.1:3000/capture");
+  assert.deepEqual(loopbackPolicy, { mode: "same-origin", allowLoopbackPeers: true });
+  assert.equal(editorOriginPolicyAllows(loopbackPolicy, "http://localhost:4400", "http://127.0.0.1:3000/capture"), true);
+
+  const originalWindow = globalThis.window;
+  globalThis.window = {
+    location: { origin: "http://site.example", href: "http://site.example/" },
+    parent: {},
+    opener: null,
+    addEventListener() {},
+    removeEventListener() {},
+  };
+  try {
+    assert.throws(() => attachSpatialReviewDiscoveryBridge({
+      name: "Insecure producer",
+      liveCapture: "/capture",
+    }, authorization), /producerUrl must use HTTPS/);
+  } finally {
+    globalThis.window = originalWindow;
+  }
+});
+
+test("rejects non-canonical or insecure configured authorization origins", () => {
+  const invalidOrigins = [
+    "https://user:secret@editor.example",
+    "https://editor.example/path",
+    "https://editor.example?mode=review",
+    "https://editor.example#review",
+    "https://*.editor.example",
+    "http://editor.example",
+    "https://editor.example:443",
+    "https://editor.example/",
+  ];
+  for (const configured of invalidOrigins) {
+    assert.throws(
+      () => createSpatialReviewEditorAuthorization({ allowOfficialEditor: false, allowedOrigins: [configured] }),
+      /allowedOrigins\[0\] is invalid/,
+    );
+    assert.throws(
+      () => attachSceneAssetRegistryBridge(new SceneAssetRegistry("invalid-origin"), { allowOfficialEditor: false, allowedOrigins: [configured] }),
+      /allowedOrigins\[0\] is invalid/,
+    );
+  }
+  assert.doesNotThrow(() => createSpatialReviewEditorAuthorization({
+    allowOfficialEditor: false,
+    allowedOrigins: ["http://localhost:4400", "http://127.0.0.1:4500", "http://[::1]:4600"],
+  }));
+});
+
 test("builds official editor deep links", () => {
   assert.equal(
     spatialReviewEditorUrl("project.example/path"),
@@ -111,6 +249,162 @@ test("trusts the official editor for discovery by default and supports explicit 
   }
 });
 
+test("correlates unauthorized live-capture handshakes without exposing scene data", async () => {
+  const root = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());
+  const registry = new SceneAssetRegistry("rejection-fixture");
+  registry.register({ actorId: "private-fixture", assetId: "private-fixture", name: "Private fixture", category: "Test", sourceRef: "private.ts", root });
+  const received = [];
+  let listener;
+  const editor = { postMessage(message, origin) { received.push({ message, origin }); } };
+  const originalWindow = globalThis.window;
+  globalThis.window = {
+    location: { origin: "https://site.example" },
+    parent: editor,
+    opener: null,
+    addEventListener(type, value) { if (type === "message") listener = value; },
+    removeEventListener() {},
+    setTimeout,
+  };
+  try {
+    const detach = attachSceneAssetRegistryBridge(registry, { allowOfficialEditor: false, allowedOrigins: ["https://authorized.example"] });
+    received.length = 0; // Ignore public readiness announcements.
+    listener({ origin: "https://unauthorized.example", source: editor, data: { type: SPATIAL_REVIEW_REQUEST, profile: "review", requestId: "denied-1" } });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(received.length, 1);
+    assert.deepEqual(received[0], {
+      origin: "https://unauthorized.example",
+      message: {
+        type: SPATIAL_REVIEW_CONNECTION_REJECTED,
+        requestId: "denied-1",
+        code: SPATIAL_REVIEW_EDITOR_ORIGIN_NOT_AUTHORIZED,
+        message: "Use an authorized editor origin or a bundled scene snapshot.",
+      },
+    });
+    assert.equal(JSON.stringify(received[0]).includes("private-fixture"), false);
+    assert.equal(validateSpatialReviewConnectionRejected(received[0].message).ok, true);
+    assert.equal(validateSpatialReviewConnectionRejected({ ...received[0].message, code: "unknown" }).ok, false);
+    assert.equal(validateSpatialReviewConnectionRejected({ ...received[0].message, requestId: "wrong".repeat(50) }).ok, false);
+    assert.equal(validateSpatialReviewConnectionRejected({ ...received[0].message, message: "x".repeat(501) }).ok, false);
+
+    listener({ origin: "https://unauthorized.example", source: editor, data: { type: SPATIAL_REVIEW_REQUEST, requestId: "" } });
+    listener({ origin: "https://unauthorized.example", source: {}, data: { type: SPATIAL_REVIEW_REQUEST, requestId: "wrong-window" } });
+    assert.equal(received.length, 1, "malformed and unrelated-window requests receive no response");
+    detach();
+  } finally {
+    globalThis.window = originalWindow;
+    root.geometry.dispose(); root.material.dispose();
+  }
+});
+
+test("requires an explicit opt-in before trusting a different loopback origin", async () => {
+  const root = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());
+  const registry = new SceneAssetRegistry("loopback-authorization-fixture");
+  registry.register({ actorId: "fixture", assetId: "fixture", name: "Fixture", category: "Test", sourceRef: "fixture.ts", root });
+  const received = [];
+  let listener;
+  const editor = { postMessage(message, origin) { received.push({ message, origin }); } };
+  const originalWindow = globalThis.window;
+  globalThis.window = {
+    location: { origin: "http://127.0.0.1:3000" },
+    parent: editor,
+    opener: null,
+    addEventListener(type, value) { if (type === "message") listener = value; },
+    removeEventListener() {},
+    setTimeout,
+  };
+  try {
+    const request = { type: SPATIAL_REVIEW_REQUEST, profile: "review", requestId: "loopback-request" };
+    const detachDefault = attachSceneAssetRegistryBridge(registry, { allowOfficialEditor: false });
+    received.length = 0;
+    listener({ origin: "http://localhost:4400", source: editor, data: request });
+    assert.equal(received[0]?.message.type, SPATIAL_REVIEW_CONNECTION_REJECTED);
+    detachDefault();
+
+    const detachOptIn = attachSceneAssetRegistryBridge(registry, { allowOfficialEditor: false, allowLoopbackPeers: true });
+    received.length = 0;
+    listener({ origin: "http://localhost:4400", source: editor, data: request });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(received[0]?.message.type, SPATIAL_REVIEW_CATALOG);
+    detachOptIn();
+  } finally {
+    globalThis.window = originalWindow;
+    root.geometry.dispose(); root.material.dispose();
+  }
+});
+
+test("shared disclosed authorization matches preflight and capture decisions", async () => {
+  const authorization = createSpatialReviewEditorAuthorization({
+    allowOfficialEditor: false,
+    allowedOrigins: ["https://editor.example"],
+    advertiseEditorOriginPolicy: { publicOrigins: ["https://editor.example"] },
+  });
+  const policy = spatialReviewEditorOriginPolicy(authorization, "https://site.example/capture");
+  assert.equal(editorOriginPolicyAllows(policy, "https://editor.example", "https://site.example/capture"), true);
+  assert.equal(editorOriginPolicyAllows(policy, "https://other.example", "https://site.example/capture"), false);
+
+  const root = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());
+  const registry = new SceneAssetRegistry("shared-authorization-fixture");
+  registry.register({ actorId: "fixture", assetId: "fixture", name: "Fixture", category: "Test", sourceRef: "fixture.ts", root });
+  const received = [];
+  let listener;
+  const editor = { postMessage(message, origin) { received.push({ message, origin }); } };
+  const originalWindow = globalThis.window;
+  globalThis.window = {
+    location: { origin: "https://site.example" },
+    parent: editor,
+    opener: null,
+    addEventListener(type, value) { if (type === "message") listener = value; },
+    removeEventListener() {},
+    setTimeout,
+  };
+  try {
+    const detach = attachSceneAssetRegistryBridge(registry, { authorization });
+    received.length = 0;
+    listener({ origin: "https://editor.example", source: editor, data: { type: SPATIAL_REVIEW_REQUEST, profile: "review", requestId: "allowed" } });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(received[0].message.type, SPATIAL_REVIEW_CATALOG);
+    received.length = 0;
+    listener({ origin: "https://other.example", source: editor, data: { type: SPATIAL_REVIEW_REQUEST, profile: "review", requestId: "denied" } });
+    assert.equal(received[0].message.type, SPATIAL_REVIEW_CONNECTION_REJECTED);
+    detach();
+  } finally {
+    globalThis.window = originalWindow;
+    root.geometry.dispose(); root.material.dispose();
+  }
+});
+
+test("materializes configured editor origins for repeated bridge requests", async () => {
+  const root = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());
+  const registry = new SceneAssetRegistry("iterable-authorization-fixture");
+  registry.register({ actorId: "fixture", assetId: "fixture", name: "Fixture", category: "Test", sourceRef: "fixture.ts", root });
+  const received = [];
+  let listener;
+  const editor = { postMessage(message, origin) { received.push({ message, origin }); } };
+  const originalWindow = globalThis.window;
+  globalThis.window = {
+    location: { origin: "https://site.example" },
+    parent: editor,
+    opener: null,
+    addEventListener(type, value) { if (type === "message") listener = value; },
+    removeEventListener() {},
+    setTimeout,
+  };
+  try {
+    function* configuredOrigins() { yield "https://editor.example"; }
+    const detach = attachSceneAssetRegistryBridge(registry, { allowOfficialEditor: false, allowedOrigins: configuredOrigins() });
+    received.length = 0;
+    for (const requestId of ["first", "second"]) {
+      listener({ origin: "https://editor.example", source: editor, data: { type: SPATIAL_REVIEW_REQUEST, profile: "review", requestId } });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    assert.deepEqual(received.map((entry) => entry.message.type), [SPATIAL_REVIEW_CATALOG, SPATIAL_REVIEW_CATALOG]);
+    detach();
+  } finally {
+    globalThis.window = originalWindow;
+    root.geometry.dispose(); root.material.dispose();
+  }
+});
+
 test("trusts the official editor for registered scene catalogs by default", async () => {
   const root = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());
   const registry = new SceneAssetRegistry("official-editor-fixture");
@@ -149,7 +443,15 @@ test("trusts the official editor for registered scene catalogs by default", asyn
       data: { type: SPATIAL_REVIEW_REQUEST, profile: "review", requestId: "official-opt-out" },
     });
     await new Promise((resolve) => setTimeout(resolve, 0));
-    assert.equal(received.length, 0);
+    assert.deepEqual(received, [{
+      origin: OFFICIAL_SPATIAL_REVIEW_EDITOR_ORIGIN,
+      message: {
+        type: SPATIAL_REVIEW_CONNECTION_REJECTED,
+        requestId: "official-opt-out",
+        code: SPATIAL_REVIEW_EDITOR_ORIGIN_NOT_AUTHORIZED,
+        message: "Use an authorized editor origin or a bundled scene snapshot.",
+      },
+    }]);
     detachOptOut();
   } finally {
     globalThis.window = originalWindow;
@@ -169,7 +471,10 @@ test("discovers a live capture through the origin-checked browser bridge", () =>
     removeEventListener() {},
   };
   try {
-    const detach = attachSpatialReviewDiscoveryBridge({ name: "Fixture", liveCapture: "/capture" }, { allowOfficialEditor: false, allowedOrigins: ["https://editor.example"] });
+    const detach = attachSpatialReviewDiscoveryBridge({
+      name: "Fixture",
+      liveCapture: "/capture",
+    }, { allowOfficialEditor: false, allowedOrigins: ["https://editor.example"] });
     listener({ origin: "https://editor.example", source: editor, data: { type: SPATIAL_REVIEW_DISCOVERY_REQUEST, requestId: "discovery-1" } });
     assert.deepEqual(received, [{
       origin: "https://editor.example",
@@ -216,6 +521,37 @@ test("discovers a live capture through the origin-checked browser bridge", () =>
     assert.equal(received[0].message.discoveryUrl, "https://site.example/project/manifests/v1/review.json");
     assert.equal(received[0].message.discovery.liveCapture, "https://site.example/project/capture");
     detachCustomBase();
+
+    const advertisedAuthorization = createSpatialReviewEditorAuthorization({
+      allowOfficialEditor: false,
+      allowedOrigins: ["https://editor.example"],
+      advertiseEditorOriginPolicy: { publicOrigins: ["https://editor.example"] },
+    });
+    received.length = 0;
+    const detachAdvertised = attachSpatialReviewDiscoveryBridge({ name: "Advertised", liveCapture: "/capture" }, { authorization: advertisedAuthorization });
+    listener({ origin: "https://editor.example", source: editor, data: { type: SPATIAL_REVIEW_DISCOVERY_REQUEST, requestId: "advertised" } });
+    assert.deepEqual(received[0].message.discovery.capabilities.liveCapture.editorOriginPolicy, {
+      mode: "allowlist",
+      origins: ["https://site.example", "https://editor.example"],
+    });
+    detachAdvertised();
+
+    assert.throws(() => attachSpatialReviewDiscoveryBridge({
+      name: "Mismatched policy",
+      liveCapture: "/capture",
+      capabilities: { liveCapture: { editorOriginPolicy: { mode: "any" } } },
+    }, { authorization: advertisedAuthorization }), /does not match the runtime/);
+    assert.throws(() => attachSpatialReviewDiscoveryBridge({
+      name: "Raw explicit policy",
+      liveCapture: "/capture",
+      capabilities: { liveCapture: { editorOriginPolicy: { mode: "any" } } },
+    }, { allowOfficialEditor: false, allowedOrigins: ["https://editor.example"] }), /requires an explicitly disclosed shared authorization/);
+
+    received.length = 0;
+    const detachDynamic = attachSpatialReviewDiscoveryBridge({ name: "Dynamic", liveCapture: "/capture" }, { allowOfficialEditor: false, allowOrigin: (origin) => origin === "https://dynamic.example" });
+    listener({ origin: "https://dynamic.example", source: editor, data: { type: SPATIAL_REVIEW_DISCOVERY_REQUEST, requestId: "dynamic" } });
+    assert.equal(received[0].message.discovery.capabilities, undefined);
+    detachDynamic();
   } finally {
     globalThis.window = originalWindow;
   }
