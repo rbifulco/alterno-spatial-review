@@ -414,6 +414,65 @@ test("advertises and reads registered texture resources", async () => {
   assert.ok(resource.bytes.byteLength > 0);
 });
 
+test("falls back to an exportable decoded canvas when a texture URL has a non-image MIME type", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalHTMLCanvasElement = globalThis.HTMLCanvasElement;
+  const encodedPng = new Uint8Array(Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2ZQAAAABJRU5ErkJggg==",
+    "base64",
+  ));
+  class DecodedCanvas {
+    toBlob(callback, contentType) {
+      callback(new Blob([encodedPng], { type: contentType }));
+    }
+  }
+  globalThis.HTMLCanvasElement = DecodedCanvas;
+  globalThis.fetch = async () => new Response(encodedPng, {
+    headers: { "Content-Type": "application/octet-stream" },
+  });
+  try {
+    const texture = new THREE.Texture(new DecodedCanvas());
+    texture.userData.sourceRef = "https://assets.example/mislabelled.webp";
+    const root = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial({ map: texture }));
+    const registry = new SceneAssetRegistry("texture-mime-fallback-fixture");
+    registry.register({ actorId: "fixture", assetId: "fixture", name: "Fixture", category: "Test", sourceRef: "fixture.ts", root });
+    const map = registry.toReviewIndex("review").assetCatalog.assets[0].materials[0].maps[0];
+
+    const resource = await registry.readTextureResource(map.resourceId, encodedPng.byteLength);
+    assert.equal(resource.contentType, "image/png");
+    assert.deepEqual(new Uint8Array(resource.bytes), encodedPng);
+    await assert.rejects(
+      registry.readTextureResource(map.resourceId, encodedPng.byteLength - 1),
+      { name: "RangeError", message: /transfer limit/ },
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+    globalThis.HTMLCanvasElement = originalHTMLCanvasElement;
+  }
+});
+
+test("rejects non-image texture responses without an exportable decoded fallback", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response("not an image", {
+    headers: { "Content-Type": "text/plain" },
+  });
+  try {
+    const texture = new THREE.Texture();
+    texture.userData.sourceRef = "https://assets.example/not-an-image.txt";
+    const root = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial({ map: texture }));
+    const registry = new SceneAssetRegistry("texture-non-image-fixture");
+    registry.register({ actorId: "fixture", assetId: "fixture", name: "Fixture", category: "Test", sourceRef: "fixture.ts", root });
+    const map = registry.toReviewIndex("review").assetCatalog.assets[0].materials[0].maps[0];
+
+    await assert.rejects(
+      registry.readTextureResource(map.resourceId, 1024),
+      /non-image Content-Type "text\/plain".*decoded fallback is unavailable.*no exportable image source.*image\/\*/,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("catalog revisions release superseded texture resource IDs without disposing website textures", () => {
   const registry = new SceneAssetRegistry("texture-revision-fixture");
   const firstTexture = new THREE.Texture();

@@ -170,6 +170,11 @@ A direct texture response must meet these conditions:
 - The response body contains decodable image bytes.
 - CORS permits the consumer when direct cross-origin loading is intended.
 
+Inspect the deployed response headers for one representative texture instead
+of relying on its file extension. If a successful `sourceRef` response has a
+non-image MIME type, the SDK rejects those fetched bytes and uses an exportable
+already-decoded registered source when one is available.
+
 The capture bridge can transfer generated textures and textures without direct
 CORS access. Make the decoded texture source exportable before the material
 representation becomes available.

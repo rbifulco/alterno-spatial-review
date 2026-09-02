@@ -28,6 +28,13 @@ async function drawableBlob(image: CanvasImageSource, width: number, height: num
   return canvasBlob(canvas);
 }
 
+function imageBlob(blob: Blob, source: string) {
+  if (!blob.type.toLowerCase().startsWith("image/")) {
+    throw new Error(`${source} has non-image Content-Type ${JSON.stringify(blob.type || "(missing)")}.`);
+  }
+  return blob;
+}
+
 function dataTextureBlob(data: { data?: unknown; width?: unknown; height?: unknown }) {
   const width = Number(data.width);
   const height = Number(data.height);
@@ -57,19 +64,9 @@ function dataTextureBlob(data: { data?: unknown; width?: unknown; height?: unkno
   return canvasBlob(canvas);
 }
 
-async function textureBlob(texture: THREE.Texture) {
-  const annotated = texture.userData.sourceBlob;
-  if (annotated instanceof Blob) return annotated;
-  const sourceRef = sourceReference(texture);
-  if (sourceRef) {
-    const response = await fetch(new URL(sourceRef, typeof document === "undefined" ? "http://localhost/" : document.baseURI));
-    if (!response.ok) throw new Error(`Texture source returned ${response.status}.`);
-    const blob = await response.blob();
-    if (!blob.type.toLowerCase().startsWith("image/")) throw new Error("Texture source is not an image.");
-    return blob;
-  }
+async function decodedTextureBlob(texture: THREE.Texture) {
   const image = texture.source?.data;
-  if (image instanceof Blob) return image;
+  if (image instanceof Blob) return imageBlob(image, "The decoded texture Blob");
   if (typeof HTMLCanvasElement !== "undefined" && image instanceof HTMLCanvasElement) return canvasBlob(image);
   if (typeof OffscreenCanvas !== "undefined" && image instanceof OffscreenCanvas) return image.convertToBlob({ type: "image/png" });
   if (typeof ImageBitmap !== "undefined" && image instanceof ImageBitmap) return drawableBlob(image, image.width, image.height);
@@ -78,6 +75,27 @@ async function textureBlob(texture: THREE.Texture) {
   const dataBlob = image && typeof image === "object" ? dataTextureBlob(image as { data?: unknown; width?: unknown; height?: unknown }) : undefined;
   if (dataBlob) return dataBlob;
   throw new Error("The texture has no exportable image source.");
+}
+
+async function textureBlob(texture: THREE.Texture) {
+  const annotated = texture.userData.sourceBlob;
+  if (annotated instanceof Blob) return imageBlob(annotated, "The annotated texture Blob");
+  const sourceRef = sourceReference(texture);
+  if (!sourceRef) return decodedTextureBlob(texture);
+
+  const response = await fetch(new URL(sourceRef, typeof document === "undefined" ? "http://localhost/" : document.baseURI));
+  if (!response.ok) throw new Error(`Texture source returned ${response.status}.`);
+  const blob = await response.blob();
+  if (blob.type.toLowerCase().startsWith("image/")) return blob;
+
+  try {
+    return await decodedTextureBlob(texture);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : "The decoded texture could not be exported.";
+    throw new Error(
+      `Texture source returned non-image Content-Type ${JSON.stringify(blob.type || "(missing)")}, and its decoded fallback is unavailable: ${reason} Configure the source response with an image/* Content-Type or provide an exportable decoded image source.`,
+    );
+  }
 }
 
 export async function readTextureResource(texture: THREE.Texture, maxBytes: number): Promise<TextureResource> {

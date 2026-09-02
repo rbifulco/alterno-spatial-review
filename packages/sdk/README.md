@@ -96,6 +96,21 @@ websites do not need to expose texture CORS headers. Direct URL loading remains
 an optional editor optimization. The editor and website negotiate a per-resource
 byte limit during the catalog handshake and enforce the lower offer.
 
+A registered `sourceRef` is expected to return a successful response whose
+`Content-Type` starts with `image/`. Check that header on the deployed asset,
+especially when a CDN or static host serves WebP or other image formats. When a
+successful response instead has a non-image MIME type, the SDK discards those
+response bytes and tries the already-decoded registered texture source. Canvas,
+image, bitmap, video, and supported RGB/RGBA data sources can be encoded as a
+safe image fallback. If neither path is exportable, the resource response names
+the MIME mismatch and remediation. Both direct and decoded paths enforce the
+negotiated byte limit.
+
+As an installation check, open one representative textured asset in the editor
+and confirm that its live texture reports ready and matches the website. This
+check complements inspecting the deployed `Content-Type`; a resource ID alone
+does not prove that transferable texture bytes are available.
+
 The package also exports `buildThreeAsset()`, `makeAssetGeometry()`, and
 `disposeThreeAsset()` for websites that render an engine-neutral
 `ReviewAsset3D` contract back into a Three.js hierarchy.
