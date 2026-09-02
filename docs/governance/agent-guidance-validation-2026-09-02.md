@@ -180,3 +180,33 @@ The Asset-first fixture texture failure and the Kage Night sky texture failure
 remain recorded product limitations. They do not change the guidance score.
 They block an installation only when its intended review workflow requires the
 failing texture path.
+
+## Follow-up clean-install evidence
+
+Three context-free agents applied the guidance to clean worktrees of Claude of
+Duty, Sedona Sunset, and Kage. The worktrees started from their original default
+branches. The protocol repository was at `e1bafb0`. The local editor was at
+`7ab1973`.
+
+The browser acceptance check started from each ordinary website URL in the
+local editor. Claude of Duty and Kage connected. Their representative Scene and
+Asset views opened. Kage also opened its Experience view after the Asset view.
+Sedona Sunset did not connect. Its focused test had opened the capture page
+directly. The ordinary website exposed neither a static discovery document nor
+a discovery bridge. The focused test therefore did not prove the reviewer
+entry path.
+
+The run also exposed two instruction-selection errors. One agent treated the
+installation request as approval for the official editor. Two agents selected
+local-source package workflows although the released package was available.
+The procedure now states these requirements explicitly:
+
+- An installation or configuration request does not approve the official
+  editor origin.
+- Use the latest released package unless the user explicitly requests a local
+  or unreleased SDK.
+- Start acceptance with the ordinary website URL in the selected editor. A
+  direct capture-page test does not prove discovery from that URL.
+
+This follow-up changes no protocol or SDK behavior. It adds no import-map or CDN
+requirement.

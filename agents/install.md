@@ -132,6 +132,9 @@ when the editor origins, exposed data, and framing scope are unchanged.
 When no recorded decision covers the intended access, ask for approval before
 you install the SDK or start a bridge. Include these facts:
 
+A request to install or configure Spatial Review does not approve the official
+editor origin.
+
 - The official editor origin is `https://spatial-review.alterno.dev`.
 - Package installation does not expose website data.
 - A started capture bridge exposes deliberately registered roots and their
@@ -236,8 +239,10 @@ continue with that check blocked.
 When the planned work does not require a new capability, keep the compatible
 SDK version. Before an upgrade, review permission and compatibility effects.
 
-When the SDK is missing, install it with the website's package manager. The npm
-command is:
+When the SDK is missing, use the latest released package. Use a local or
+unreleased SDK only when the user explicitly requests it. Install the selected
+package with the website's package manager. The npm command for the released
+package is:
 
 ```sh
 npm install @alterno-dev/spatial-review
@@ -356,6 +361,11 @@ website's own origin. A loopback website also accepts other loopback origins.
 Keep the existing security policy. Add a framing exception only to the capture
 and discovery routes that the development editor must embed.
 
+Start the acceptance test with the ordinary website URL in the selected
+development editor. Do not use the capture URL as the initial website URL. A
+direct capture-page bridge test does not prove discovery from the ordinary
+website URL.
+
 Test both browser bridges with the website and editor on different loopback
 ports.
 
@@ -394,7 +404,7 @@ Run the smallest applicable check set:
 | Visual non-interference | The same representative ordinary-page view has no unintended visual change before and after installation. |
 | Functional non-interference | The same representative ordinary-page interactions have the same result before and after installation. |
 | Runtime isolation | A dedicated capture route keeps registry construction, capture bridging, serialization, and review resources out of the ordinary page. A same-document integration may reuse the website scene and attach the capture bridge when its visual, functional, and performance comparisons pass. |
-| Review connection | The development editor discovers the capture page and reaches a useful state without an unrelated user interaction. |
+| Review connection | Starting with the ordinary website URL, the development editor discovers the capture page and reaches a useful state without an unrelated user interaction. |
 | Representative review | Each exposed editor view opens one representative subject. Its identity and visible result agree with the website or authoritative source. |
 | Feedback loop | One intended feedback action exports a stable target and a searchable source reference. A refresh preserves unresolved feedback. |
 | Performance screen | When its trigger applies, the ordinary page passes the lightweight screen in `docs/performance-profile.md`. |
