@@ -414,6 +414,33 @@ test("advertises and reads registered texture resources", async () => {
   assert.ok(resource.bytes.byteLength > 0);
 });
 
+test("preserves an explicitly annotated texture Blob without a MIME type", async () => {
+  const bytes = Uint8Array.of(137, 80, 78, 71);
+  const texture = new THREE.Texture();
+  texture.userData.sourceBlob = new Blob([bytes]);
+  const root = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial({ map: texture }));
+  const registry = new SceneAssetRegistry("untyped-annotated-blob-fixture");
+  registry.register({ actorId: "fixture", assetId: "fixture", name: "Fixture", category: "Test", sourceRef: "fixture.ts", root });
+  const map = registry.toReviewIndex("review").assetCatalog.assets[0].materials[0].maps[0];
+
+  const resource = await registry.readTextureResource(map.resourceId, 1024);
+  assert.equal(resource.contentType, "image/png");
+  assert.deepEqual(new Uint8Array(resource.bytes), bytes);
+});
+
+test("preserves a decoded texture Blob without a MIME type", async () => {
+  const bytes = Uint8Array.of(137, 80, 78, 71);
+  const texture = new THREE.Texture(new Blob([bytes]));
+  const root = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial({ map: texture }));
+  const registry = new SceneAssetRegistry("untyped-decoded-blob-fixture");
+  registry.register({ actorId: "fixture", assetId: "fixture", name: "Fixture", category: "Test", sourceRef: "fixture.ts", root });
+  const map = registry.toReviewIndex("review").assetCatalog.assets[0].materials[0].maps[0];
+
+  const resource = await registry.readTextureResource(map.resourceId, 1024);
+  assert.equal(resource.contentType, "image/png");
+  assert.deepEqual(new Uint8Array(resource.bytes), bytes);
+});
+
 test("falls back to an exportable decoded canvas when a texture URL has a non-image MIME type", async () => {
   const originalFetch = globalThis.fetch;
   const originalHTMLCanvasElement = globalThis.HTMLCanvasElement;

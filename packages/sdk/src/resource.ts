@@ -28,13 +28,6 @@ async function drawableBlob(image: CanvasImageSource, width: number, height: num
   return canvasBlob(canvas);
 }
 
-function imageBlob(blob: Blob, source: string) {
-  if (!blob.type.toLowerCase().startsWith("image/")) {
-    throw new Error(`${source} has non-image Content-Type ${JSON.stringify(blob.type || "(missing)")}.`);
-  }
-  return blob;
-}
-
 function dataTextureBlob(data: { data?: unknown; width?: unknown; height?: unknown }) {
   const width = Number(data.width);
   const height = Number(data.height);
@@ -66,7 +59,7 @@ function dataTextureBlob(data: { data?: unknown; width?: unknown; height?: unkno
 
 async function decodedTextureBlob(texture: THREE.Texture) {
   const image = texture.source?.data;
-  if (image instanceof Blob) return imageBlob(image, "The decoded texture Blob");
+  if (image instanceof Blob) return image;
   if (typeof HTMLCanvasElement !== "undefined" && image instanceof HTMLCanvasElement) return canvasBlob(image);
   if (typeof OffscreenCanvas !== "undefined" && image instanceof OffscreenCanvas) return image.convertToBlob({ type: "image/png" });
   if (typeof ImageBitmap !== "undefined" && image instanceof ImageBitmap) return drawableBlob(image, image.width, image.height);
@@ -79,7 +72,7 @@ async function decodedTextureBlob(texture: THREE.Texture) {
 
 async function textureBlob(texture: THREE.Texture) {
   const annotated = texture.userData.sourceBlob;
-  if (annotated instanceof Blob) return imageBlob(annotated, "The annotated texture Blob");
+  if (annotated instanceof Blob) return annotated;
   const sourceRef = sourceReference(texture);
   if (!sourceRef) return decodedTextureBlob(texture);
 
