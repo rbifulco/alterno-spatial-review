@@ -41,7 +41,9 @@ record. Other routes keep their existing anti-framing protection.
 
 ## Configure discovery and capture
 
-Keep bridge configuration in one integration module:
+Select browser discovery or static discovery for each workflow. Do not add both
+paths unless named consumers require both. This example uses browser discovery.
+Keep its bridge configuration in one integration module:
 
 ```ts
 import {
@@ -102,13 +104,16 @@ Use `registerDeferred()` for expensive geometry. Configure queue, concurrency,
 per-request byte, and aggregate byte limits. Apply
 [Deferred asset streaming](deferred-asset-streaming.md).
 
-**Complete when:** one integration module owns both bridges, the registry, the
-selected lifecycle, and teardown.
+**Complete when:** one integration module owns the capture bridge, the registry,
+the selected lifecycle, and teardown. When the workflow uses browser discovery,
+the same module also owns the discovery bridge.
 
 ## Publish static discovery
 
 The discovery bridge is sufficient for browser review. Publish a discovery
-document when CLI validation or non-browser discovery is required.
+document when CLI validation or non-browser discovery is required. Also publish
+one when the ordinary page must not load review code. When the static document
+is sufficient for the selected consumers, do not add a browser discovery bridge.
 
 The canonical path is:
 

@@ -366,11 +366,15 @@ development editor. Do not use the capture URL as the initial website URL. A
 direct capture-page bridge test does not prove discovery from the ordinary
 website URL.
 
-Test both browser bridges with the website and editor on different loopback
-ports.
+Select one discovery path for each development workflow. Use the browser
+discovery bridge when the ordinary page can load it. Use
+[static discovery](../docs/integrating-a-website.md#publish-static-discovery)
+when the workflow requires CLI or non-browser discovery. Also use static
+discovery when the ordinary page must not load review code. Do not implement
+both paths unless named consumers require both.
 
-Apply [Publish static discovery](../docs/integrating-a-website.md#publish-static-discovery)
-only when the development workflow requires CLI or non-browser discovery.
+Test the selected discovery path and the capture bridge with the website and
+editor on different loopback ports.
 
 Request the discovery URL used by the development workflow. Treat browser
 fallback as separate evidence only when the integration depends on it.

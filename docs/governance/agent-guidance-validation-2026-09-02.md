@@ -210,3 +210,33 @@ The procedure now states these requirements explicitly:
 
 This follow-up changes no protocol or SDK behavior. It adds no import-map or CDN
 requirement.
+
+### Sedona Sunset repeat after the instruction fixes
+
+A second context-free agent started from Sedona Sunset default-branch commit
+`c26daa8`. It used the released SDK `0.6.0`, kept official-editor authorization
+disabled, and tested the ordinary website URL in the actual local editor. The
+first implementation provided both browser and static discovery. Both worked,
+but the duplication added review code to the ordinary page without serving a
+second named consumer. The guidance now requires one discovery path per
+development workflow unless named consumers require both.
+
+The validation branch was then reduced to static discovery only. The ordinary
+page contains no Spatial Review import or bootstrap. The relative static
+discovery document resolves the ordinary website URL and directs the editor to
+the separate capture page.
+
+| Check | Observed result | Status |
+| --- | --- | --- |
+| Package and authorization selection | The integration uses the released SDK and protocol package at `0.6.0` and sets `allowOfficialEditor: false`. | Pass |
+| Ordinary reviewer entry | The editor connected from `http://localhost:8099/` through `/.well-known/spatial-review.json`; the test did not open the capture page directly. | Pass |
+| One discovery path | Static discovery is the only installed path. The ordinary page contains no review runtime. | Pass |
+| Scene | The simplified installation loaded `2/2` asset meshes, two objects, and one path reference. | Pass |
+| Asset and Experience | Before the discovery simplification, the same capture integration loaded representative Asset geometry and the ten-stop, nine-transition Experience. The simplification did not change the capture integration. | Pass |
+| Feedback persistence | The context-free run recorded an observation and found it again after refresh. | Pass |
+| Project preflight | `pnpm gate --preflight --allow-dirty` passed the invariant, parse, module, shader, scene-construction, and corridor-walk checks. | Pass |
+| Pixel-rendering parity | The available preflight explicitly omits pixel rendering. The full project render gate did not produce a terminal result in this environment. | Not verified |
+
+This result supports the installation and review-loop instructions. It does not
+claim full visual parity for the ordinary website. That claim still requires a
+working project-specific rendered baseline comparison.
