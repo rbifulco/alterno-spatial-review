@@ -19,10 +19,15 @@ Alterno Spatial Review uses Changesets and keeps the protocol, SDK, validator, a
 4. Review all package versions, generated changelogs, internal dependency ranges, and migration notes.
 5. Run the test and package checks again.
 6. Commit the prepared release as `chore(release): version packages` on a
-   same-repository `chore/release-*` branch and merge it through the normal
-   protected-branch flow. CI reserves that branch prefix for release PRs and
-   skips the contributor Changeset check because versioning has already
-   consumed the reviewed Changeset.
+   same-repository `chore/release-*` branch.
+7. Merge the release branch through the normal protected-branch flow. CI
+   reserves that branch prefix for release PRs. It skips the contributor
+   Changeset check because versioning has already consumed the reviewed
+   Changeset.
+
+**Complete when:** `main` contains the prepared release commit. The repeated
+test, package, version, changelog, dependency-range, and migration-note checks
+all pass.
 
 ## Publish
 
@@ -35,6 +40,15 @@ npm run pack:check
 npm run release
 ```
 
-Verify all four versions on npm and create a matching GitHub release summarizing the generated changelogs. Do not reuse a version or publish from an uncommitted working tree.
+Verify all four versions on npm. Create a matching GitHub release. Summarize the
+generated changelogs in that release. Do not reuse a version. Do not publish from
+an uncommitted working tree.
 
-Publication remains an explicit maintainer action. If trusted publishing automation is introduced later, its workflow permissions, npm package trust configuration, environment protection, and rollback behavior must receive a dedicated security review.
+**Complete when:** npm shows all four matching versions. The GitHub release
+points to the reviewed release commit and contains the compatibility and
+migration notes.
+
+Publication remains an explicit maintainer action. Before introducing trusted
+publishing automation, complete a dedicated security review. Include workflow
+permissions, npm trust configuration, environment protection, and rollback
+behavior in that review.

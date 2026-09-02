@@ -547,14 +547,25 @@ export class SceneAssetRegistry {
   private deferredRepresentationKey(profile: SpatialReviewProfile, assetId: string, representationId: string, revision: string) {
     return JSON.stringify([profile, assetId, representationId, revision]);
   }
+  private ownsAssetTextureResources(asset: ReviewAsset3D) {
+    return asset.materials.every((material) => material.maps?.every((map) => !map.resourceId || this.textureResources.has(map.resourceId)) ?? true);
+  }
   canReuseAssetRepresentation(assetId: string, profile: SpatialReviewProfile, representationId: string, revision: string) {
     this.ordered();
     const entry = this.assets.get(assetId);
     if (!entry) return false;
-    if (!isDeferred(entry)) return true;
-    const representation = entry.stream.representations.find((candidate) => candidate.id === representationId && candidate.revision === revision);
+    const representation = this.streamDescriptor(entry, profile).representations
+      .find((candidate) => candidate.id === representationId && candidate.revision === revision);
     if (!representation) return false;
-    return !this.unavailableDeferredRepresentations.has(this.deferredRepresentationKey(profile, assetId, representationId, revision));
+    if (!isDeferred(entry)) {
+      const cached = this.assetCache.get(`${profile}:true:${entry.assetId}`);
+      return cached?.revision === this.revision(entry) && this.ownsAssetTextureResources(cached.asset);
+    }
+    const key = this.deferredRepresentationKey(profile, assetId, representationId, revision);
+    const cached = this.deferredRepresentationCache.get(key);
+    return cached?.registration === entry
+      && !this.unavailableDeferredRepresentations.has(key)
+      && this.ownsAssetTextureResources(cached.asset);
   }
   async produceAssetRepresentation(assetId: string, profile: SpatialReviewProfile, representationId: string, maxBytes: number,
     priority: SceneAssetRepresentationContext["priority"], signal: AbortSignal, reportProgress: SceneAssetRepresentationContext["reportProgress"] = () => {}) {

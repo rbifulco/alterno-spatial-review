@@ -2,5 +2,5 @@
   "name": "alterno-spatial-review-three-example",
   "private": true,
   "type": "module",
-  "dependencies": { "@alterno-dev/spatial-review": "0.1.0", "three": "^0.180.0" }
+  "dependencies": { "@alterno-dev/spatial-review": "0.6.0", "three": "^0.180.0" }
 }

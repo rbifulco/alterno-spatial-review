@@ -7,6 +7,8 @@ Thank you for helping make spatial feedback easier to give, interpret, and act o
 - For a bug fix, documentation improvement, test, or compatible feature, open a pull request directly.
 - For a large feature, open a feature request before investing substantial work.
 - For a schema, protocol, discovery, transport, or compatibility change, open a **Protocol change** issue first and follow the [protocol-change process](docs/governance/protocol-changes.md).
+- For a change to agent guidance, apply the [agent guidance quality rubric](docs/governance/agent-guidance-quality.md). Record a score of at least 90, and give each dimension a rating of at least 3.
+- Put repository-level guidance execution evidence in `docs/governance/`.
 - For a suspected vulnerability, follow [SECURITY.md](SECURITY.md) instead of opening a public issue.
 
 ## Set up the project
@@ -22,6 +24,9 @@ npm run pack:check
 ```
 
 Create a focused branch from the latest `main`. Keep unrelated changes in separate pull requests.
+
+**Complete when:** dependencies install, `npm test` passes, `npm run pack:check`
+passes, and the focused branch starts from the latest `main`.
 
 ## Commits and pull-request titles
 
@@ -55,6 +60,10 @@ npm run changeset
 
 Choose every affected package and describe the user-visible result. A changeset is normally unnecessary for documentation, examples, tests, CI, and internal refactors that do not change published behavior.
 
+**Complete when:** the changeset names every affected published package and the
+user-visible result. When no changeset is required, record that decision in the
+pull-request description.
+
 All four packages currently share a fixed version because the protocol, SDK, validator, and CLI are released as one compatible toolset.
 
 ## Submit a pull request
@@ -66,9 +75,16 @@ npm test
 npm run pack:check
 ```
 
-Complete the pull-request template, keep the diff focused, add tests for behavioral changes, and update documentation when the public interface or integration flow changes. Mark protocol and compatibility consequences explicitly.
+Complete the pull-request template. Keep the diff focused. Add tests for
+behavioral changes. Update documentation when the public interface or
+integration flow changes. Mark protocol and compatibility consequences
+explicitly.
 
-A pull request is ready to merge when required checks pass, review conversations are resolved, and any required protocol proposal has been accepted. Maintainers use squash merging so `main` keeps one meaningful conventional commit per pull request.
+**Complete when:** required checks pass, every review conversation is resolved,
+and each required protocol proposal has recorded acceptance.
+
+Maintainers use squash merging. This policy keeps one meaningful conventional
+commit on `main` for each pull request.
 
 By contributing, you agree that your contribution is licensed under the project's [MIT License](LICENSE).
 

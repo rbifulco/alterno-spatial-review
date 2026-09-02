@@ -77,6 +77,7 @@ type PeerState = {
   lastStatusAt: number;
   lastStatusPhase?: SpatialReviewSourceStatusMessage["phase"];
   lastStatusActiveRequests?: number;
+  deliveredRepresentations: Set<string>;
 };
 
 function loopback(origin: string) {
@@ -137,15 +138,20 @@ export function attachSceneAssetRegistryBridge(registry: SceneAssetRegistry, opt
   const stateFor = (target: Window, origin: string) => {
     let state = peerStates.get(target);
     if (!state) {
-      state = { origin, resourceLimit: maxResourceBytes, geometryLimit: maxGeometryBytes, progressive: false, stream: false, readyForStatus: false, queue: [], active: new Map(), inFlightBytes: 0, lastStatusAt: 0 };
+      state = { origin, resourceLimit: maxResourceBytes, geometryLimit: maxGeometryBytes, progressive: false, stream: false, readyForStatus: false, queue: [], active: new Map(), inFlightBytes: 0, lastStatusAt: 0, deliveredRepresentations: new Set() };
       peerStates.set(target, state);
+    } else if (state.origin !== origin) {
+      state.deliveredRepresentations.clear();
     }
     state.origin = origin;
     return state;
   };
+  const representationKey = (assetId: string, profile: SpatialReviewProfile, representationId: string, revision: string) =>
+    JSON.stringify([profile, assetId, representationId, revision]);
   const post = (target: Window, origin: string, message: unknown, transfer: Transferable[] = []) => {
-    if (disposed) return;
-    try { target.postMessage(message, origin, transfer); } catch { /* The requesting frame or popup may have closed. */ }
+    if (disposed) return false;
+    try { target.postMessage(message, origin, transfer); return true; }
+    catch { return false; /* The requesting frame or popup may have closed. */ }
   };
   const responseBase = (request: SpatialReviewAssetRequest, profile: SpatialReviewProfile) => ({
     type: SPATIAL_REVIEW_ASSET_RESPONSE,
@@ -227,9 +233,9 @@ export function attachSceneAssetRegistryBridge(registry: SceneAssetRegistry, opt
   };
 
   const finishJob = (_state: PeerState, job: StreamJob, response: SpatialReviewAssetResponse, transfer: Transferable[] = []) => {
-    if (job.terminal) return;
+    if (job.terminal) return false;
     job.terminal = true;
-    post(job.target, job.origin, response, transfer);
+    return post(job.target, job.origin, response, transfer);
   };
   const releaseJob = (state: PeerState, job: StreamJob) => {
     if (state.active.get(job.request.requestId) !== job) return false;
@@ -268,7 +274,8 @@ export function attachSceneAssetRegistryBridge(registry: SceneAssetRegistry, opt
             finishJob(state, job, { ...base, ok: false, error: "not-found", representationId: job.representation.id, revision: job.representation.revision });
           } else {
             if (job.controller.signal.aborted) throw new DOMException("Asset representation request was cancelled.", "AbortError");
-            finishJob(state, job, { ...base, ok: true, asset: result.asset, representationId: result.representation.id, revision: result.representation.revision, notModified: false }, result.transfer);
+            const delivered = finishJob(state, job, { ...base, ok: true, asset: result.asset, representationId: result.representation.id, revision: result.representation.revision, notModified: false }, result.transfer);
+            if (delivered) state.deliveredRepresentations.add(representationKey(job.request.assetId, job.profile, result.representation.id, result.representation.revision));
           }
         } catch (error) {
           const cancelled = job.controller.signal.aborted || (error instanceof DOMException && error.name === "AbortError");
@@ -303,6 +310,7 @@ export function attachSceneAssetRegistryBridge(registry: SceneAssetRegistry, opt
       return;
     }
     if (stream.knownRevision === representation.revision
+      && state.deliveredRepresentations.has(representationKey(request.assetId, profile, representation.id, representation.revision))
       && registry.canReuseAssetRepresentation(request.assetId, profile, representation.id, representation.revision)) {
       post(target, event.origin, { ...base, ok: true, notModified: true, representationId: representation.id, revision: representation.revision });
       return;

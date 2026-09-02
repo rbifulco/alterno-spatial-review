@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Spatial Review new-install fixture</title>
+    <style>
+      html, body { margin: 0; min-height: 100%; background: #14171b; color: #f4f1e8; font: 16px system-ui; }
+      main { display: grid; min-height: 100vh; place-items: center; }
+      canvas { width: min(80vw, 720px); height: min(70vh, 520px); }
+      output { position: fixed; inset: 1rem auto auto 1rem; }
+    </style>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "/node_modules/three/build/three.module.js",
+          "@alterno-dev/spatial-review": "/packages/sdk/dist/index.js",
+          "@alterno-dev/spatial-review-protocol": "/packages/protocol/dist/index.js"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <main><canvas aria-label="Textured review fixture"></canvas></main>
+    <output id="fixture-status">starting</output>
+    <script type="module" src="./src/browser-fixture.js?v=lean-verification-5"></script>
+  </body>
+</html>

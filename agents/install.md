@@ -1,357 +1,442 @@
 # Install or update Spatial Review on an existing website
 
-Use this procedure to add the SDK to an existing website or refine an existing
-integration and its exports against updated guidance.
-If the target website or its source is missing, ask for its location
-before proceeding.
+Use this procedure for a new integration or an update of an existing
+integration. Complete the steps in order. Record evidence for each completion
+condition.
 
-Derive review exports from the website's authoritative scene, asset, and
-navigation definitions. The examples use Three.js and TypeScript; adapt paths
-and lifecycle hooks to the existing framework.
+## Terms
 
-Complete the steps in order. Preserve the website's behavior while exporting
-its scene, assets, and applicable journeys according to
-[Structuring for review](structuring-for-review.md). A reviewer must be able to
-connect, identify a target, export feedback, and map it back to source in every
-applicable editor. Package installation and bridge connectivity are intermediate
-checks, not completion of the integration.
+Use these terms throughout the procedure:
+
+- **Integration plan:** the single record for permission, scope, implementation,
+  evidence, and remaining limitations.
+- **User:** the person who approves package, access, and repository changes.
+- **Reviewer:** the person who evaluates the review representation in the
+  editor.
+- **Producer:** the integrated website that publishes review data.
+- **Consumer:** an editor or tool that requests review data.
+- **Peer:** one authorized producer-consumer connection with negotiated
+  capabilities and limits.
+- **Browser bridge:** either of the two SDK message interfaces below.
+- **Discovery bridge:** the interface started by
+  `attachSpatialReviewDiscoveryBridge()`. It exposes discovery metadata.
+- **Capture bridge:** the interface started by
+  `attachSceneAssetRegistryBridge()`. It exposes registered review data and
+  registered texture resources.
+- **Capture page:** the document that owns the registry and capture bridge. It
+  can be a dedicated capture document or the ordinary document in a
+  same-document integration. The capture URL identifies it.
+- **Ordinary page:** the website route and state as a visitor experiences it,
+  without an active editor request. It can host a dormant discovery bridge or a
+  same-document capture bridge.
+- **Registered root:** a Three.js `Object3D` passed through `root` or `roots`.
+  It owns one rendered subtree in the review representation.
+- **Ordinary-page baseline:** one or more recorded views and representative
+  interactions on the ordinary page before the integration change.
+- **Capture baseline:** the smallest set of review subjects and interactions
+  that proves the intended development-review workflow for one build.
+- **Review baseline:** the source revision and review representation that saved
+  feedback targets.
+- **Build ID:** the registry identity for one source build. Change it when a new
+  website build can change registered review data.
+- **Catalog revision:** the SDK-generated identity for one registry catalog
+  state. Registration changes advance it.
+- **Representation revision:** the producer-supplied immutable identity for one
+  deferred asset representation. Change it when that representation changes.
+- **Decision-relevant:** content whose omission or incorrect representation can
+  change the requested review decision.
+- **Expensive:** work that exceeds an existing performance or transport budget.
+  When no project budget exists, use a main-thread chunk of 50 milliseconds or
+  more, a visible editor stall, or the negotiated transfer byte ceiling as the
+  trigger. Record the observed trigger.
+- **Applicable check:** a check for content present in the integration plan or
+  for a capability negotiated by the tested peers.
+- **Blocked check:** an applicable check that cannot run because a required
+  capability, environment, or dependency is unavailable. Record the reason,
+  available evidence, and user decision. A blocked check remains unverified.
+- **Serialization profile:** the SDK `scene` or `review` export mode. It is not
+  a performance test configuration.
+- **Representation family:** one advertised asset representation identified by
+  `representationId`, such as an overview or detail representation. It is not a
+  serialization profile.
+- **Compatible Three.js version:** a version inside the installed SDK's
+  `peerDependencies` range that passes the website tests and build.
+- **Review subject:** an actor, asset, material, texture, or journey selected for
+  review. Do not use this term for a feedback-schema `target` or camera `target`.
+- **Authoritative source definition:** the repository-relative file and symbol or
+  content key that controls a review subject.
+- **Eager registration:** a `register()` call that can supply a representation
+  synchronously when requested. A deferred registration uses
+  `registerDeferred()` and an asynchronous producer. In a negotiated progressive
+  catalog, both types can publish metadata before geometry.
+- **Supported fallback peer:** a consumer version named in the integration
+  plan's compatibility target and verified against the complete-catalog path.
+- **Stable semantic ID:** a deterministic ID derived from authoritative content
+  and role. It stays unchanged when the target stays unchanged. It is unique
+  among targets of the same kind. Actor and assembly IDs also share one
+  cross-kind namespace.
+- **Searchable source reference:** a repository-relative path plus a symbol or
+  content key that a repository text search can resolve.
+- **Texture source URL:** a stable, credential-free image URL stored in a
+  texture map's `sourceRef` field. It is not a searchable source reference.
+- **Reproducible capture state:** a state in which one build and one recorded
+  input set produce the same inventory, IDs, transforms, and bounds. Fix random
+  seeds, time inputs, and user inputs when they affect registered evidence.
+- **Forward status:** a source-status phase that does not precede the current
+  catalog phase.
+- **Resource lifetime:** the installed SDK's session boundary, delivery grace,
+  and cache bounds for one resource class.
+- **Terminal result:** a final recorded success or explicit failure after the
+  retry policy. A `busy`, progress, queued, or active result is not terminal. An
+  `asset-stream-v1` terminal result is an asset, `notModified`, `not-found`,
+  `too-large`, `unavailable`, or `cancelled` response.
+- **Settled demand:** a demand in which every requested item has a terminal
+  result and no item remains queued, active, or scheduled for retry.
+- **Installation retry policy:** wait at least the returned `retryAfterMs`.
+  Attempt the representative request no more than three times. After the third
+  `busy` result, record the request as failed and unsettled.
+
+A review representation is not the live website. It is a deliberate export of
+the website's scene, assets, and navigation. The editor collects feedback on
+that representation. An agent applies the feedback to authoritative source.
+Read [Structuring for review](structuring-for-review.md) before you select the
+exported content.
+
+Use each reference for its named subject:
+
+| Subject | Authoritative reference | Use it when |
+| --- | --- | --- |
+| Review boundaries, identity, source mapping, and materials | [Structure a website for review](structuring-for-review.md) | You select or change exported content. |
+| Camera, scroll, or guided routes | [Export navigation sequences](exporting-navigation-sequences.md) | The integration plan includes an authored journey. |
+| Bridge API, discovery, framing, and texture transport | [Integrate a website](../docs/integrating-a-website.md) | You implement or deploy transport. |
+| Deferred representation behavior | [Deferred asset streaming](../docs/deferred-asset-streaming.md) | Geometry is expensive to construct, serialize, or transfer under the defined trigger. |
+| Ordinary-page performance screen | [Spatial Review performance screen](../docs/performance-profile.md) | Integration code runs on the ordinary page or changes shared rendering, state, routing, input, or lifecycle code. |
+| Local and vendored package installation | [Install from source](../docs/install-from-source.md) | The integration does not use the published npm package. |
+
+Keep permission, integration order, browser acceptance, and final reporting in
+this procedure.
+
+The integration is complete only when a reviewer can do these actions:
+
+1. Connect to the website.
+2. Identify a review subject.
+3. Export feedback.
+4. Map the feedback to authoritative source.
+5. Refresh the review and verify the source change.
 
 ## 1. Obtain permission
 
-For an existing integration, retain the user's recorded authorization when the
-origins, exposed data, and framing scope remain unchanged. Ask for approval
-before expanding that scope. If no recorded decision covers the intended access,
-use the checkpoint below.
+Check the recorded authorization for an existing integration. Reuse it only
+when the editor origins, exposed data, and framing scope are unchanged.
 
-Before installing the SDK or enabling either bridge, ask the user to approve
-the review access. A general request to add Spatial Review is not approval.
-Include these facts in the question:
+When no recorded decision covers the intended access, ask for approval before
+you install the SDK or start a bridge. Include these facts:
 
-- The exact official editor origin is `https://spatial-review.alterno.dev`.
-- Installation alone exposes nothing; starting a bridge enables access.
-- The editor may receive discovery metadata, deliberately registered scene
-  and asset structures, materials, source references, and registered texture bytes.
-- It receives no arbitrary DOM, application state, credentials, or unregistered
-  scene objects.
-- The discovery and capture pages must permit embedding by that exact origin;
-  this may require a scoped HTTP framing-policy change.
+- The official editor origin is `https://spatial-review.alterno.dev`.
+- Package installation does not expose website data.
+- A started capture bridge exposes deliberately registered roots and their
+  supported descendants. This data can include descendant geometry, materials,
+  and textures.
+- Registered data can include discovery metadata, scene and asset structures,
+  materials, source references, texture URL strings, and texture bytes.
+- The bridge does not automatically expose arbitrary DOM, cookies, storage,
+  unrelated application state, or objects outside registered roots.
+- The serializer can copy registered texture `sourceRef`, `requestUrl`,
+  `currentSrc`, or `src` strings. Inspect them for embedded credentials, signed
+  query tokens, and other secrets before bridge attachment.
+- When an approved editor embeds the discovery page or capture page, that page
+  must permit framing by the editor origin. An opener-based popup workflow does
+  not require framing permission.
+- Both bridges always accept the website's own origin.
 - `allowOfficialEditor: false` disables official-editor authorization.
+- A loopback website accepts other loopback origins for local development.
+- The capture bridge sends a readiness announcement to its parent or opener
+  before it authorizes a request. This announcement contains build identity,
+  counts, capabilities, and transfer limits. It contains no catalog or texture
+  bytes. The discovery bridge sends no readiness announcement.
 
-Use this formulation:
+Use this question:
 
-> Do you approve enabling `https://spatial-review.alterno.dev` as an editor?
-> This grants permission to that domain to receive the
-> scene, asset, material, source-reference, and texture data we explicitly
-> decide to register for review, and to embed the discovery and capture pages,
+> Do you approve `https://spatial-review.alterno.dev` as a Spatial Review
+> editor? The editor can embed the discovery page and capture page. It can
+> receive the scene, asset, material, source-reference, and texture data that
+> this integration explicitly registers. Registered texture references can
+> include URL strings. The integration will anyway do its best to remove any secrets
+> from those strings before it starts the bridge.
 
-Wait for an affirmative answer before writing `allowOfficialEditor: true` or
-broadening framing permissions. If declined, record `false`. Ask separately
-for each additional production origin before adding it to `allowedOrigins`.
+Record `allowOfficialEditor: true` only after approval. Record `false` when the
+user declines. Get a separate decision for each additional production origin.
 
-**Complete when:** the user has made a decision covering data access and framing,
-and every proposed production editor origin has an explicit authorization decision.
+**Complete when:** the integration plan contains the data-access decision,
+the framing decision, and a decision for each proposed production origin.
 
-## 2. Define the review structure
+## 2. Define the review representation
 
-Inspect the target website's scene creation, asset factories/loaders, placement
-data, camera controller, entry route, and deployment headers. Identify any
-installed SDK, bridge configuration, registrations, and static exports.
+Inspect the authoritative construction code before you change registration.
+Inspect these items:
 
-Read and apply [Structuring for review](structuring-for-review.md) before
-changing construction or registrations. Compare existing exports with the
-current guidance, identify gaps, and record a compact integration plan:
+- scene construction and placement data;
+- asset factories and loaders;
+- material and texture creation;
+- camera and navigation controllers;
+- entry routes and the capture page;
+- deployment headers and static-file behavior;
+- current SDK configuration and registrations; and
+- static review exports.
 
-| Inventory | Required decisions |
+Apply [Structuring for review](structuring-for-review.md) to every review
+subject. If the website has authored camera, scroll, or guided-view motion, also
+apply [Export navigation sequences](exporting-navigation-sequences.md).
+
+### Complete the integration plan
+
+Create a repository-relative Markdown integration plan. Use
+`docs/spatial-review-integration-plan.md` when the repository has no established
+location. Record an existing location when you reuse one. Include at least this
+inventory:
+
+| Inventory | Required decision |
 | --- | --- |
-| Integration | First installation or refinement; current SDK and exports, guidance gaps, required changes |
-| Actors | Independent selections, placement IDs, relevant surrounding context |
-| Assembly ownership | Explicit place/room owners for contents and fixtures, World/Street exceptions, expected move/rotate/scale/hide behavior, uniform assembly scale, capability support and any flat-scene limitations |
-| Assets | Shared designs, distinct variants, component hierarchy, materials |
-| Journeys | Applicable routes, meaningful stops, authored camera and aim inputs |
-| Source mapping | Source definitions for placements, components, and path controls; coordinate conversions |
-| Migration | Stable IDs across reparenting; explicit old-to-new target mapping or a new baseline when changing component/actor boundaries |
-| Capture | Entry URL, readiness condition, reproducible scene state, refresh lifecycle |
-| Performance | Ordinary-page startup/frame/memory baseline; capture startup and catalog cost; expensive registrations; review-only GPU work; transfer and concurrency budgets |
+| Scope | New integration or update; representation boundaries; intentional exclusions |
+| Actors | Independent placements; stable actor IDs; decision-relevant context |
+| Ownership | Explicit assembly owners; World or Street owners; flat fallback limitations |
+| Assets | Canonical designs; variants; components; materials; texture sources |
+| Experience | Applicable journeys; stops; camera and aim controls; timing; FOV |
+| Source mapping | Authoritative definitions; source references; coordinate conversions |
+| Migration | Stable IDs; explicit target mapping; new review baseline when identity changes |
+| Capture | Capture URL; deterministic capture-page state; bootstrap phases; refresh and teardown |
+| Transport | Development editor origins; capture route; discovery path; texture path used by the representative asset |
+| Ordinary page | Representative views and interactions; integration isolation; existing performance budget |
+| Review smoke | One representative subject for each exposed editor view; one intended feedback round trip |
+| Deferred trigger | Observed construction, serialization, or transfer cost; applicable budget or default trigger; eager or deferred decision |
 
-For the website's authored camera, scroll, or guided-view motion, also read and
-apply [Export navigation sequences](exporting-navigation-sequences.md). Mark
-review scales as not applicable only when the existing experience does not
-use them; missing exports for existing content remain integration work.
+Run the material preflight in
+[Preserve material and geometry evidence](structuring-for-review.md#preserve-material-and-geometry-evidence).
+Run the [performance screen](../docs/performance-profile.md) when integration
+code runs on the ordinary page. Also run it when the change modifies shared
+rendering, state, routing, input, or lifecycle code.
 
-Measure a representative baseline before changing the integration. At minimum,
-record ordinary-page startup behavior, steady-state frame behavior, and any
-existing performance test, plus capture readiness time and the largest known
-review assets when those can be measured. Identify work caused only by review:
-duplicate scene construction, eager hierarchy traversal or serialization,
-shader/post-processing warmup, texture readback, unbounded producers, and extra
-render loops. Do not improve a metric by silently omitting intended actors,
-materials, hierarchy, or authored high-detail geometry.
+Record the ordinary-page baseline and the capture baseline. Select one
+representative subject for each editor view that the integration exposes. Add
+subjects only when the review request needs them. Do not enumerate the complete
+catalog as installation evidence.
 
-**Complete when:** every intended review target has an owner in source and a
-review scale, the required integration changes are identified, and exclusions,
-proxies, unsupported behavior, baseline performance, and performance risks are
-recorded.
+**Complete when:** each representative review subject has a review scale and an
+authoritative source definition. The plan records the intended review workflow,
+ordinary-page baseline, exclusions, known limitations, performance risk, and
+each applicable eager or deferred decision.
 
-## 3. Install or update the SDK as needed
+## 3. Install or update the SDK
 
-Retain the website's framework, routes, and working behavior. Use its existing
-run/build commands to establish a baseline before changing the integration.
-Record pre-existing failures separately from failures introduced by this work.
+Run the website's existing tests before you change dependencies. Run its build.
+If either command fails, record the pre-existing failure. Stop the dependency
+change. Ask the user whether to repair the baseline. The user can instead
+continue with that check blocked.
 
-If the SDK is already installed, keep the compatible version unless the plan
-requires an upgrade. Review compatibility and permission changes before
-upgrading. Refining registrations or exports may require no package change.
+When the planned work does not require a new capability, keep the compatible
+SDK version. Before an upgrade, review permission and compatibility effects.
 
-Inspect the website's dependencies and retain its compatible Three.js runtime.
-If the SDK is missing, run from the website using its package manager
-(npm shown):
+When the SDK is missing, install it with the website's package manager. The npm
+command is:
 
 ```sh
 npm install @alterno-dev/spatial-review
 ```
 
-Add `three` if the website does not already depend on it. The SDK uses Three.js
-as a peer dependency so registration and rendering share the same runtime.
+When the website declares a compatible Three.js version, keep it. When the
+website does not declare `three`, add it. The SDK uses Three.js as a peer
+dependency.
 
-For SDK development, unreleased changes, or vendored packages, follow
-[Install from source](../docs/install-from-source.md), then return here. Resolve
-the normal package exports; a source checkout must be built before use.
+For an unreleased or local SDK, follow
+[Install from source](../docs/install-from-source.md). Build the source checkout
+before the website resolves its package exports.
 
-**Complete when:** the website runs at a known URL, its build succeeds, and it
-resolves the selected SDK and compatible Three.js versions with reproducible
-dependency and lockfile changes.
+Start the website with its existing development command. Record the ordinary
+page URL and capture URL in the integration plan.
 
-## 4. Implement or refine registration and review exports
+**Complete when:** the website runs at a known URL and the lockfile resolves the
+selected SDK and Three.js versions reproducibly. Each pre-change test and build
+result passes or is a user-accepted blocked check. Do not use a blocked result
+for regression comparison.
 
-Add or update registrations, capture setup, and export code according to the
-gaps from step 2. Refine scene or asset construction only where necessary to
-expose meaningful review targets, while preserving the rendered experience.
-Apply the structure guide throughout implementation: shared assets, named
-components, placement data, and authored journey controls must remain traceable
-to the source that renders them.
+## 4. Implement the representation
 
-Export each applicable review scale through the registry:
+Use the [website integration reference](../docs/integrating-a-website.md) for
+bridge configuration and API examples. Keep bridge configuration in one
+integration module. Register content near its authoritative construction code.
 
-| Website content | Required review representation |
+Export each applicable review scale:
+
+| Website content | Required representation |
 | --- | --- |
-| Scene composition | Independent actors with stable placement IDs, asset links, transforms, bounds, and enough context to judge relationships |
-| Places and contents | Transform-only assemblies with explicit parent-local poses; owned actors retain separate placement IDs and shared asset links |
-| Asset construction | Canonical asset definitions with meaningful component hierarchy, local transforms, geometry, materials, and available textures |
-| Authored navigation | Sequences built from runtime stops, camera and aim controls, timing, and FOV; follow the navigation guide for each route |
+| Scene composition | Stable placements, transforms, bounds, asset links, and decision-relevant context |
+| Places and contents | Transform-only assemblies with explicit parent-local poses and independent child placements |
+| Asset construction | Canonical components, local transforms, geometry, materials, and available textures |
+| Authored navigation | `NavigationSequence` data from runtime stops, camera and aim controls, timing, and FOV |
 
-Live export is required for this workflow. Static JSON exports are an additional
-transport when needed in step 5. Both must describe the same rendered content.
+This section is the source of truth for capture readiness. The current SDK
+promotes the first serialized catalog from `booting` to `catalog-ready`. It does
+not provide a producer-controlled initial readiness gate. Use this sequence:
 
-Keep bridge configuration in one integration module. Register actors close to
-their authoritative construction code, after their hierarchy and resources are
-ready. Use the boundaries and source mappings from step 2.
+1. Create the registry on the capture page.
+2. Construct every intended eager registration.
+3. Register metadata and descriptors for every intended deferred asset.
+4. Register every intended navigation sequence and assembly.
+5. Attach the authorized capture bridge after the initial registration set is
+   complete.
+6. Let the first catalog request publish `catalog-ready`.
+7. Produce deferred representations on demand.
+8. Use `setSourceStatus()` only for forward post-catalog status. The bridge
+   sends that status only to peers that negotiated `asset-stream-v1`.
 
-```ts
-// src/spatial-review.ts
-import {
-  SceneAssetRegistry,
-  attachSceneAssetRegistryBridge,
-  attachSpatialReviewDiscoveryBridge,
-} from "@alterno-dev/spatial-review";
+Do not attach the bridge while initial catalog registration is incomplete. The
+first request can otherwise publish a partial catalog as ready. Record
+producer-controlled initial progress as unsupported. Open an SDK proposal when
+the integration requires incremental bootstrap after bridge attachment.
 
-// Supply the release version or commit through the website's build system.
-const buildId = import.meta.env.VITE_GIT_COMMIT ?? "development";
-export const spatialReviewRegistry = new SceneAssetRegistry(buildId);
+For a refresh that changes multiple registrations, stop requests before the
+first change. Detach the old capture bridge or build a replacement registry.
+Apply the complete registration set. Then attach one bridge for the new catalog.
+Do not expose an intermediate catalog revision.
 
-const authorization = {
-  allowOfficialEditor: false, // Set true only after step 1 approval.
-  allowedOrigins: [] as string[], // Additional approved exact origins only.
-};
+The ordinary page can start discovery. The capture URL must construct the
+documented review state without a reviewer interaction. Use a reproducible state
+for procedural or animated content.
 
-const captureOptions = {
-  ...authorization,
-  // Choose these from the scene's measured asset sizes and memory budget.
-  maxGeometryBytes: 64 * 1024 * 1024,
-  maxConcurrentAssetRequests: 2,
-  maxInFlightBytes: 96 * 1024 * 1024,
-  maxQueuedAssetRequests: 24,
-};
+Apply the [registration-owner rules](structuring-for-review.md#choose-actor-boundaries)
+and the [identity rules](structuring-for-review.md#preserve-identity-and-source-mapping).
+Use the actor, asset, and assembly decisions recorded in the integration plan.
 
-export function startReviewDiscovery() {
-  return attachSpatialReviewDiscoveryBridge({
-    name: "Courtyard",
-    liveCapture: "/?spatial-review-capture=1",
-  }, authorization);
-}
+When the plan includes authored navigation, apply
+[Register the sequence](exporting-navigation-sequences.md#7-register-the-sequence)
+to each selected journey.
 
-export function startReviewCapture() {
-  return attachSceneAssetRegistryBridge(spatialReviewRegistry, captureOptions);
-}
-```
+Make each texture source exportable before its material representation becomes
+available. Keep the capture page alive during live-resource requests. Follow
+the installed SDK's delivery grace and cache bounds. If an ID expires, request
+the representation again. Use the current resource IDs from that regenerated
+representation. Give each changed
+representation a new build ID or representation revision.
 
-Adapt the build variable to the framework. A release or commit identifies the
-reviewed code; an explicitly labeled development fallback is for local work.
+Use `registerDeferred()` for review geometry that is expensive to construct,
+serialize, or transfer. Confirm that the producer and intended consumer support
+`asset-stream-v1`. Read
+[Deferred asset streaming](../docs/deferred-asset-streaming.md) before you add a
+producer. Give each producer accurate metadata, immutable revisions,
+cancellation, progress, and measured byte and concurrency limits.
 
-```ts
-// In the scene construction module, after creating and attaching the gate.
-spatialReviewRegistry.register({
-  actorId: "gate-courtyard-entry",
-  assetId: "courtyard-gate",
-  name: "Courtyard entrance gate",
-  category: "Architecture",
-  sourceRef: "src/scene/gates.ts#courtyardEntry",
-  root: gate,
-  tags: ["entrance", "landmark"],
-  order: 10,
-});
-```
+When the plan names a supported fallback peer, give each required asset an eager
+fallback or record its intentional deferred-only exclusion. Do not claim that a
+deferred-only asset is visible to a peer without `asset-stream-v1`.
+When an expensive asset is required by that peer, use eager `register()` despite
+the cost. Record the cost and optimize the eager representation without removing
+required review evidence.
 
-`gate` is the root already used by the website. For one actor assembled from
-sibling roots, pass `roots: gateParts`; their order and first-root coordinate
-frame must remain stable. Register journeys using the navigation guide.
+Release capture-owned resources on cancellation, failure, refresh, hot reload,
+and unmount. Keep resources that the live website still owns. Bound each cache
+by source, build, profile, asset, representation, and revision.
 
-For ownership-capable SDK versions, register buildings/rooms with
-`registerAssembly()` and add `parentAssemblyId` to contained actor registrations.
-Follow the [ownership contract](../docs/ownership-first-scene.md), including its
-unreleased status and acceptance gate. An assembly root supplies only a pose;
-do not also register its full rendered subtree when its contents already have
-actor registrations. Do not infer ownership from attachment, category, or distance.
+Compare the generated catalog with the integration plan. Resolve every actor,
+asset, component, material, texture, and journey to authoritative source.
 
-Start discovery on the ordinary entry page. Start capture after all intended
-registrations are ready. The advertised capture URL must construct that same
-content without requiring a reviewer to scroll, click, or wait for an unrelated
-interaction. Select and document a reproducible state for procedural or animated
-experiences, while preserving the normal website behavior.
+**Complete when:**
 
-Keep the normal page's work proportional to what the website already renders.
-Do not build a second detailed scene only to register it when authoritative roots
-can be registered directly. A dedicated capture URL may disable presentation-only
-work such as post-processing, shadow-map refreshes, audio, simulation, adaptive
-quality, and high device-pixel ratios when those do not change registered review
-evidence. Keep geometry/material detail at the documented review fidelity, make
-the capture policy explicit in its URL or setup, and test the ordinary page for
-regressions as well as the capture page.
+- The initial registration set contains every planned target before bridge
+  attachment.
+- Applicable post-catalog work reports forward status.
+- Published resources remain retrievable for their documented lifetime.
+- Refresh and teardown release capture-owned work.
+- Each supported fallback peer receives its planned eager content and excludes
+  only the recorded deferred-only content.
 
-For geometry that is expensive to construct, inspect, or retain, prefer
-`registerDeferred()` when the selected SDK supports `asset-stream-v1`. Publish
-cheap, accurate world bounds and immutable overview/detail revisions; build only
-the requested representation; honor `AbortSignal` before and during expensive
-work; bound progress; and keep the result within `maxBytes`. Configure measured
-per-request, queue, concurrency, and aggregate in-flight limits on the capture
-bridge. Keep eager `register()` entries where compatibility with older editors
-is required. Read [Deferred asset streaming](../docs/deferred-asset-streaming.md)
-before implementing a producer, and use `setSourceStatus()` for meaningful
-application-level readiness without starting the bridge early.
+## 5. Configure development transport
 
-Reuse immutable geometry and materials where the website already does, and
-follow the SDK's ownership helpers when constructing review-only hierarchies.
-Dispose temporary hierarchies on cancellation, failure, refresh, and unmount;
-never dispose resources still owned by the rendered website. A cache must be
-bounded by source/build/profile/asset/representation revision, not just asset ID.
+Configure only the recorded development editors. The SDK always accepts the
+website's own origin. A loopback website also accepts other loopback origins.
+Keep the existing security policy. Add a framing exception only to the capture
+and discovery routes that the development editor must embed.
 
-Keep the cleanup functions returned by both bridges and call them on unmount
-or hot reload. Retain the capture page while live resource requests are needed.
-For runtime actor changes, read the installed SDK's
-[cache and lifecycle rules](../packages/sdk/README.md#large-scenes-and-resource-ownership)
-and use the APIs available in that version. Navigation registrations are cloned
-snapshots: register again after replacing their authoritative definitions.
-An updated registry becomes visible when the editor requests fresh data.
+Test both browser bridges with the website and editor on different loopback
+ports.
 
-Inspect the generated review index against the step 2 inventory. Resolve every
-actor, asset, component, and journey to its rendering definition, and apply the
-[structure acceptance checklist](structuring-for-review.md#acceptance-checklist).
+Apply [Publish static discovery](../docs/integrating-a-website.md#publish-static-discovery)
+only when the development workflow requires CLI or non-browser discovery.
 
-**Complete when:** the website preserves its existing behavior, its export
-contains every planned review target with the required structure, both bridges
-use the recorded permission decision, and capture/refresh/unmount behavior is
-implemented. Record any incomplete item rather than marking this step complete.
+Request the discovery URL used by the development workflow. Treat browser
+fallback as separate evidence only when the integration depends on it.
 
-## 5. Configure transport
+Apply [Transfer textures](../docs/integrating-a-website.md#transfer-textures) to
+each decision-relevant texture. That section is the source of truth for direct
+URLs, MIME types, decoded sources, live resources, and retry results.
 
-Read the [website integration reference](../docs/integrating-a-website.md) when
-configuring production origins, framing headers, or texture transfer. Preserve
-existing security policy; authorize only approved origins on the narrowest
-routes the deployment supports.
+Do not configure or verify production deployment as part of the standard
+installation. When the user explicitly requests production access, record that
+work as a separate deployment task. Apply the deployment and authorization
+rules in [Integrate a website](../docs/integrating-a-website.md).
 
-For browser review, the discovery and capture bridges are sufficient. CORS
-access to static JSON and textures is optional. Test with the website and editor
-on different localhost ports before checking the approved production origin.
-
-If CLI validation or non-browser discovery is required, publish
-`/.well-known/spatial-review.json`:
-
-```json
-{
-  "schema": "spatial-review-discovery/v1",
-  "version": 1,
-  "name": "Courtyard",
-  "websiteUrl": "/",
-  "liveCapture": "/?spatial-review-capture=1"
-}
-```
-
-If static fallbacks are required, add `scene` and/or `assets` URLs to discovery.
-Generate them from the same authoritative construction path as live capture.
-`registry.toReviewIndex()` includes actors, journeys, and assets;
-`registry.toAssetDocument("review")` exports the detailed asset document.
-Publish portable JSON and resolve texture references relative to the manifest.
-Advertise only files that the deployment actually serves.
-
-For authored layers or deliberate context proxies, follow
-[scene organization](structuring-for-review.md#scene-organization); those are
-separate presentation choices from automatic live registration.
-
-**Complete when:** an editor on an approved origin receives the intended
-catalog, an unlisted production origin receives no protected data, and every
-advertised static fallback resolves to the expected document.
+**Complete when:** the selected development editor can discover the capture
+page and receive the representative review data. Other website routes keep
+their existing framing policy. The representative texture path has an explicit
+result.
 
 ## 6. Verify the review loop
 
-Run the website's existing tests and production build using its package scripts.
-When publishing the optional discovery document, also run:
+Use independent evidence. Do not compare a registry value with a value produced
+by the same registry. Compare ordinary-page results with the pre-integration
+baseline. Compare editor results with visible website content or an
+authoritative source definition.
 
-```sh
-npx @alterno-dev/spatial-review-cli validate https://project.example
-```
-
-CLI validation checks published documents; it does not exercise browser bridges
-or editor interactions. Perform these checks separately:
+Run the smallest applicable check set:
 
 | Check | Passing evidence |
 | --- | --- |
-| Website | The entry page, existing interactions, and authored camera journeys retain their behavior after integration changes |
-| Export coverage | The review index accounts for every planned actor, canonical asset, and journey; names, hierarchy, materials, and source mappings match the rendered content |
-| Assembly ownership | Move and hide a representative owner (for example, a building with an AC unit). The intended parts follow, unrelated owners do not, and no part is exported twice; unsupported inherited actor behavior is explicitly recorded. |
-| Discovery | Connection from the website URL works through the browser bridge without static-document CORS |
-| Permissions | Approved origins can obtain registered data; denied origins cannot obtain discovery, catalogs, or texture bytes |
-| Resources | Both scene and detailed asset views load; important textures display or a specific limitation is reported |
-| Identity | Rebuilding unchanged content preserves actor, asset, component, material, and navigation identities |
-| Refresh | A source change appears after refreshing the connected site, without duplicate registrations or stale geometry |
-| Performance | Ordinary-page startup and frame behavior do not materially regress; capture reaches metadata promptly; overview/detail requests respect byte, queue, concurrency, cancellation, and memory limits; multiple open editor frames do not multiply unbounded render or generation work |
+| Existing website checks | The affected website tests pass. Run the existing build when the integration changes build inputs or shared application code. |
+| Visual non-interference | The same representative ordinary-page view has no unintended visual change before and after installation. |
+| Functional non-interference | The same representative ordinary-page interactions have the same result before and after installation. |
+| Runtime isolation | A dedicated capture route keeps registry construction, capture bridging, serialization, and review resources out of the ordinary page. A same-document integration may reuse the website scene and attach the capture bridge when its visual, functional, and performance comparisons pass. |
+| Review connection | The development editor discovers the capture page and reaches a useful state without an unrelated user interaction. |
+| Representative review | Each exposed editor view opens one representative subject. Its identity and visible result agree with the website or authoritative source. |
+| Feedback loop | One intended feedback action exports a stable target and a searchable source reference. A refresh preserves unresolved feedback. |
+| Performance screen | When its trigger applies, the ordinary page passes the lightweight screen in `docs/performance-profile.md`. |
 
-Exercise one representative interaction in each applicable editor:
+For a Scene-only integration, do not test Asset or Experience. For an
+integration that exposes those views, open each view once. Do not test every
+view order, item, representation family, texture class, retry path, queue limit,
+or resource-lifetime branch during standard installation. The protocol and SDK
+test suites own those conformance checks.
 
-| Editor | Interaction and exported result |
-| --- | --- |
-| Scene | Select a placement, move it, and add a comment. The export identifies that actor and the intended transform; another placement of the same asset remains distinct. |
-| Scene ownership | Move/rotate an assembly; its structure, fixtures, and loose contents follow while unrelated actors do not. Select/move a child, reparent with world pose preserved, hide/show the owner without losing child choices, and verify one parent operation rather than child world deltas. Refresh and confirm no double application. |
-| Path | Scrub a journey, move an authored handle, and comment on a view. The export identifies the sequence, segment, point or view anchor, and source. Complete the navigation guide's checks for every exported journey. |
-| Asset | Open a canonical asset, select a component, adjust it, and pin a surface comment. The export identifies the asset, part, local transform, and surface anchor. |
+Add a focused integration check only when the integration adds or changes the
+corresponding capability. Examples include deferred production, custom
+discovery, generated textures, ownership, and authored navigation. Reuse the
+focused protocol test. Exercise one representative result through the editor.
+For authored navigation, apply the representative check in
+[Verify the selected journey](exporting-navigation-sequences.md#8-verify-the-selected-journey).
+When the plan names a supported fallback peer, request one representative
+catalog with that peer. Pass when its eager content and deferred-only exclusions
+match the plan.
 
-Trace every representative export to the source edit it would require,
-including coordinate conversion. Use disposable review state for these checks;
-restore test changes and preserve the user's existing feedback. A requested
-implementation change must also be checked in the real website after refresh.
+Restore disposable editor changes. Preserve existing user feedback. Record
+editor defects separately from website regressions.
 
-**Complete when:** each applicable interaction has observed evidence and an
-unambiguous source mapping. If browser access or another dependency prevents a
-check, report it as unverified; compilation alone does not complete this step.
+**Complete when:** the ordinary website retains its recorded rendering and
+behavior. The intended development-review workflow works for each exposed view.
+Every failure or unverified triggered check is visible in the result.
 
 ## 7. Report the result
 
-Report whether the SDK was added, upgraded, or retained, which integration and
-export gaps were addressed, the website and review URLs, version, and changed files.
-Include approved origins, framing changes, the exported review inventory and
-source mappings, test results, editor checks, exclusions, approximations, and
-anything incomplete or unverified.
+Report these items:
 
-Provide a direct review link using `spatialReviewEditorUrl(websiteUrl)` when the
-official editor was approved. For another editor, provide its supported entry URL.
+- added, updated, or retained SDK version;
+- website URL, capture URL, and review URL;
+- development origins and capture-route framing changes;
+- exported inventory and source mappings;
+- changed files;
+- website, browser, and triggered performance results;
+- exclusions, proxies, approximations, and capability limits; and
+- incomplete or unverified checks.
+
+When the official editor is approved, use
+`spatialReviewEditorUrl(websiteUrl)`.
 
 **Complete when:** the user can open the review and distinguish verified
-behavior from remaining limitations without reconstructing the implementation.
+behavior from every remaining limitation.

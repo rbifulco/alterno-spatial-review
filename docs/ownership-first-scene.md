@@ -1,10 +1,11 @@
 # Ownership-first scene contract
 
-Status: accepted by the repository owner on 2026-08-29 in
+Status: accepted by the repository owner on 2026-08-29. Package version 0.5.0
+and later contains the implementation, as recorded in the package changelogs.
+The acceptance decision is in
 [Protocol change issue #11](https://github.com/rbifulco/alterno-spatial-review/issues/11).
 Acceptance covers this exact `scene-assemblies-v1` contract and its compatibility
-behavior. Package publication remains a separate step under the
-[release process](governance/releases.md).
+behavior.
 
 ## Three independent relationships
 
@@ -36,11 +37,11 @@ Full hierarchical scenes explicitly declare:
 }
 ```
 
-Each actor in hierarchical mode has `localTransform`, including actors directly
-under World. Assemblies and actors have at most one optional `parentAssemblyId`;
-omitting it means World. Only assemblies can be parents. IDs are unique across
-scene placements and assemblies. They must survive reparenting. Every assembly
-has a stable `sourceRef` and human-readable name.
+Each actor in hierarchical mode has `localTransform`. This rule includes actors
+directly under World. An assembly or actor has at most one
+`parentAssemblyId`. An omitted `parentAssemblyId` means World. Only an assembly
+can be a parent. Each placement and assembly ID is unique. Keep the ID after
+reparenting. Give each assembly a stable `sourceRef` and human-readable name.
 
 `localTransform` uses parent-local metres, XYZ Euler degrees, and dimensionless
 scale. `transform` **continues to mean world space**, for both records:
@@ -50,46 +51,64 @@ worldMatrix = parentWorldMatrix × localMatrix
 ```
 
 Assembly scales must be positive and uniform. Actor scales must be finite and
-invertible; non-uniform actor scales are allowed beneath uniform-scale owners.
-Sheared source-root matrices are rejected instead of being approximated as TRS.
-An assembly's world-space `bounds` is the union of its owned actor subtree,
-including hidden contents; an empty assembly has zero size at its world pivot.
-Bounds are presentation data, never an ownership inference.
+invertible. An actor can have non-uniform scale under a uniform-scale owner.
+Reject a sheared source-root matrix. Do not approximate it as a translation,
+rotation, and scale decomposition.
 
-`visible` is the record's own choice. Effective visibility is its own visibility
-AND every ancestor's visibility. Hiding or showing an owner never rewrites child
-choices. Selection of an assembly highlights its entire owned actor subtree.
-Reparenting preserves world pose by default by computing the new parent-local
-pose. Render batches remain independent of ownership records.
+An assembly's world-space `bounds` includes its complete owned actor subtree.
+Include hidden content. Give an empty assembly zero-size bounds at its world
+pivot. Treat bounds as presentation data. Do not infer ownership from bounds.
 
-The [JSON schema](../schemas/scene-actors-v1.schema.json) covers structure.
-`validateSceneOwnership` additionally checks references, cross-kind duplicate IDs,
-cycles, depth (128), finite/invertible poses, uniform assembly scale, and evaluated
-world/local consistency. Limits are 10,000 assemblies and 100,000 actors in the
-extension; consumer transport budgets may be lower (the editor allows 5,000 live
-actors). Legacy flat validation is not tightened by opting in other producers.
+`visible` is the record's own choice. Effective visibility requires the record
+and every ancestor to be visible. Do not rewrite child visibility when an owner
+changes visibility. A consumer presents an assembly together with its complete
+owned actor subtree. For a reparent operation, read `preserveWorldPose`. When it
+is true, compute the new parent-local pose from the existing world pose. Keep
+render batches independent of ownership records.
+
+The [JSON schema](../schemas/scene-actors-v1.schema.json) checks structure.
+`validateSceneOwnership` also checks references and cross-kind duplicate IDs.
+It checks cycles, depth, poses, assembly scale, and evaluated world/local
+consistency. The maximum depth is 128. The extension limit is 10,000 assemblies
+and 100,000 actors. A consumer can set a lower transport budget. Other producers
+do not change legacy flat validation.
+
+**Complete when:** the hierarchical document passes its JSON schema and
+`validateSceneOwnership`. Each world and local transform satisfies the recorded
+relationship. Each ID, parent, scale, bound, and visibility value satisfies the
+rules above.
 
 ## Negotiation and compatibility
 
-The ready message advertises `scene-assemblies-v1`. A consumer explicitly requests
-it through `SpatialReviewCatalogRequest.capabilities`. This is independent of
-progressive geometry and texture transfer. The SDK returns hierarchical data only
-for a modern request that opts in. No opt-in, or a legacy wire alias, gets evaluated
-world-space actors without `assemblies`, `parentAssemblyId`, or `localTransform`.
-Effectively hidden actors are omitted from this legacy fallback because pre-extension
-editors may ignore even actor visibility. Hierarchical captures retain all records
-and their independent visibility choices.
+The ready message advertises `scene-assemblies-v1`. A consumer requests it in
+`SpatialReviewCatalogRequest.capabilities`. This negotiation is independent of
+progressive geometry and texture transfer.
 
-The flattened scene includes `ownership.mode: "flattened"` and a human-readable
-`reason` disclosing that assembly editing is unavailable. Older consumers may
-ignore this new disclosure field; the producer must not advertise them as capable
-of editing assemblies. An old producer remains flat in the new editor; no inferred
-ownership is added. Static `toReviewIndex()`/`toScene()` exports include hierarchy;
-use `toScene(false)` or `toReviewIndex(profile, false, false, false)` for a flattened
-static fallback. Actor-only `toActors()` and the legacy index option always return
-flattened records; use `toScene()` to retain ownership context.
+The SDK returns hierarchical data to a request that opts in. A request without
+the capability receives evaluated world-space actors. This flat response omits
+`assemblies`, `parentAssemblyId`, and `localTransform`.
 
-## Registration without changing the game
+The flat response omits actors that inherit hidden visibility. Legacy editors
+can ignore actor visibility. A hierarchical response keeps all records and each
+visibility choice.
+
+The flat scene includes `ownership.mode: "flattened"`. Its `reason` says that
+assembly editing is unavailable. A producer reports assembly editing only to a
+consumer that negotiated the capability.
+
+An old producer remains flat in a new editor. The editor does not infer
+ownership.
+
+Static `toReviewIndex()` and `toScene()` exports include hierarchy. Use
+`toScene(false)` or `toReviewIndex(profile, false, false, false)` for a flat
+static fallback. `toActors()` and the legacy index option always return flat
+records.
+
+**Complete when:** the producer sends hierarchy only to a consumer that
+negotiates `scene-assemblies-v1`. Every other consumer receives the documented
+flat fallback without inferred ownership.
+
+## Registration without changing the website
 
 ```ts
 registry.registerAssembly({
@@ -108,65 +127,77 @@ registry.register({
 });
 ```
 
-Choose either an existing `root` pose anchor or an explicit `localTransform` for
-each assembly. The first reads current world pose on capture and derives its
-parent-local pose; the second is a snapshot that must be re-registered after
-source edits. Actor-local poses are derived from their actual root world poses.
-Registration does not physically reparent, move, clone, or replace game objects.
-Register structure and contained props once each; do not also register the whole
-building subtree as a geometry actor. The SDK rejects overlapping render ownership
-when exporting hierarchical scenes. Sharing a geometry/material resource across
-distinct Object3Ds is allowed. Assembly removal requires first unregistering or
-reparenting its owned records.
+Choose an existing `root` pose anchor or an explicit `localTransform` for each
+assembly. A root supplies its current world pose during capture. The SDK derives
+its parent-local pose.
 
-For a single-root registration, the root's visibility is placement state, not a
-hidden canonical design that could hide unrelated shared placements. Descendant
-visibility remains component state. For a multi-root registration, **each root's
-visibility remains component state**, including in flattened exports; one actor
-flag cannot represent a mixture of visible and hidden parts. Use the registration's
-`visible` option to hide/show the whole placement without changing those component
-choices. When omitted, placement visibility defaults to whether any root is visible.
-All placements sharing an `assetId` share the canonical component choices.
+An explicit `localTransform` is a snapshot. Register it again after a source
+edit. The SDK derives each actor-local pose from its actual root world pose.
+
+Registration keeps website objects in their source hierarchy. Register each
+structure and contained prop once. The SDK rejects overlapping render ownership.
+Distinct objects can share geometry and material resources.
+
+Before you remove an assembly, unregister or reparent its owned records.
+
+For a single-root registration, the root's visibility is placement state.
+Descendant visibility is component state.
+
+For a multi-root registration, each root's visibility is component state. This
+rule also applies to flat exports. One actor flag cannot represent mixed root
+visibility. Use the registration `visible` option to change the complete
+placement visibility. Do not change component visibility for this action.
+When `visible` is omitted, placement visibility is true when any root is visible.
+Placements with the same `assetId` share the canonical component choices.
+
+**Complete when:** each rendered subtree has one registration owner. Assembly
+registration does not move or duplicate website geometry. Hierarchical and flat
+exports preserve the documented transforms and visibility.
 
 ## Feedback and refresh
 
 `SceneOwnershipOperation` distinguishes `target.kind: "assembly"` from
 `target.kind: "placement"`. A placement target retains `actorId`, `assetId`, and
 `sourceRef`. A transform operation carries absolute parent-local `before`/`after`
-poses. A reparent operation carries both owner IDs and complete local poses;
-if it also changes placement, that pose is part of the single reparent operation,
-not another child transform. The editor exports `application: "absolute-intent"`.
-Apply final ownership before final local poses, independently of array order.
-Do not replay a parent operation as a delta or also apply derived child world frames.
+poses. A reparent operation carries both owner IDs and complete local poses.
+Treat each operation as absolute intent against one review baseline. Apply final
+ownership before final local poses. Do this independently of array order. Do not
+replay a parent operation as a delta. Do not apply derived child world frames.
 
-Shared construction edits remain in `asset-feedback-3d/v2`, targeting the canonical
-asset and its components. Scene visibility remains a review-view preference, not
-an implicit source-modification operation.
+`SceneOwnershipOperation` defines transform and reparent actions only. It does
+not define construction edits, visibility edits, or placement creation. Keep
+those actions outside this ownership-operation contract.
 
-Duplicating an owned actor produces a new placement proposal, with a new ID and
-the same shared `assetId`. Its `add` feedback carries `space: "parent-local"` and
-an explicit `placement` (owner and local pose), not another world-space instruction.
-
-On verification refresh the editor shows the new source baseline. Unapplied local
-intent stays attached as feedback rather than being replayed onto that baseline.
-When source matches the requested pose/owner, the pending operation retires.
+Refresh the editor after source verification. Confirm that it shows the new
+review baseline. Unapplied local intent stays attached as feedback rather than
+being replayed onto that review baseline.
+When source matches the requested pose or owner, retire the pending operation.
 Ordinary progressive hydration preserves the same semantics and stable IDs.
 
-## Migrating the v6 component-based representation
+**Complete when:** each operation applies once in parent-local space. Refresh
+retires matching intent and preserves unresolved feedback without replaying it.
 
-Do not reuse component identities as actor/assembly identities merely because
-their names or source paths look similar. Choose an explicit reviewed mapping
-from each old target to its new target, or start a new review baseline and retain
-the old review set. Preserve asset-local component ordering/names for designs
-whose internal construction did not change. The editor matches ownership targets
-by stable IDs only, not by category, source-ref coincidence, or a unique asset.
-Unmatched ownership feedback is retained in `unresolvedTargets` for manual migration
-and is not an instruction to apply to a replacement object.
-Old bounds-centred scene pins and placement intent are not reinterpreted in the
-new source-root-local frame. They are retained for explicit coordinate mapping.
-Missing owners and newly conflicting reparent graphs also retain their original
-intent as unresolved feedback. Reference merging that rewrites IDs is blocked
-for ownership-aware review sets; choose an intentional baseline or explicit mapping.
+## Migrate a pre-ownership component representation
+
+A pre-ownership component representation models coordinated scene content as
+asset components without explicit assembly owners. Use this migration only for
+review sets created from that older representation.
+
+Map each old target to a reviewed new target. Start a new review baseline when
+no reliable mapping exists. Keep the old review set.
+
+Preserve asset-local component order and names when construction is unchanged.
+Match ownership targets by stable ID. Category, source-reference similarity, and
+unique asset identity do not establish a match.
+
+Keep unmatched ownership feedback for manual migration. Keep old
+bounds-centered pins for explicit coordinate mapping.
+
+Missing owners and conflicting reparent graphs also keep unresolved intent. Use
+a new review baseline or an explicit mapping for an ownership-aware review set.
+
+**Complete when:** every old target maps to one new target or remains unresolved
+in the old review set. No heuristic match silently moves feedback.
 
 ## Acceptance evidence
 
@@ -178,5 +209,5 @@ exercise parent and child edits, reparenting, refresh, full-review round-trips,
 instancing, and cross-repository SDK captures. Regression cases include mixed
 root visibility in hierarchical/flat/progressive exports and offset/thin geometry
 with actual rendered matrix, selection bounds, camera-focus, and picking checks.
-This work does not migrate a game
-adapter or authorize publishing; validate the real game after its separate migration.
+This repository evidence does not migrate a website adapter or authorize
+publishing. Validate the integrated website after its separate migration.

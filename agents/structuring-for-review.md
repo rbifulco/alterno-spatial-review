@@ -1,387 +1,403 @@
-# Structuring for review
+# Structure a website for review
 
-Read this when adding or refining an existing website's review integration,
-before changing construction or registrations. Apply every section relevant to
-the experience, and record exclusions in the integration plan from
-[Install or update Spatial Review](install.md#2-define-the-review-structure).
+Use this reference before you change actor boundaries, asset hierarchy,
+materials, navigation exports, or source mappings. Record every exclusion in
+the integration plan from
+[Define the review representation](install.md#2-define-the-review-representation).
+Use the controlled terms in [Install or update Spatial Review](install.md#terms).
 
-The review representation must let a person select a meaningful target, explain
-a change in context, and return an instruction an agent can locate in source.
-The SDK exposes registered spatial content; HTML layout and arbitrary DOM
-elements are outside this contract.
+Apply the sections with these triggers:
+
+| Trigger | Required sections |
+| --- | --- |
+| Every integration | [Understand the representation](#understand-the-review-representation), [Separate the scales](#separate-the-three-review-scales), [Choose actor boundaries](#choose-actor-boundaries), [Separate placement, asset, and ownership](#separate-placements-assets-and-ownership), [Preserve identity](#preserve-identity-and-source-mapping), [Keep feedback reversible](#keep-spatial-feedback-reversible), [Preserve the feedback loop](#preserve-the-feedback-loop), and [Acceptance checklist](#acceptance-checklist) |
+| A registered asset has reviewable construction parts | [Organize asset components](#organize-asset-components) |
+| Scene or Experience needs surrounding content | [Organize Scene context](#organize-scene-context) |
+| Appearance can affect the review decision | [Preserve material and geometry evidence](#preserve-material-and-geometry-evidence) |
+| The website has an authored journey | [Make navigation reviewable](#make-navigation-reviewable) |
+| The change can affect startup, rendering, generation, transfer, refresh, or memory | [Keep performance bounded](#keep-performance-bounded) |
+
+## Understand the review representation
+
+The review representation is a deliberate export. It is not the live website
+and it is not the authoritative source. The agent selects the content that the
+reviewer needs for a decision.
+
+Use this feedback loop:
+
+1. Read authoritative website source.
+2. Export a traceable review representation.
+3. Collect precise feedback in the applicable editor view.
+4. Map the feedback to authoritative source.
+5. Change the source.
+6. Refresh the website and review representation.
+7. Verify the result.
+
+An intentional omission from the representation is not an omission from the
+website. Record each omission, proxy, and approximation. Add more representation
+detail when the current scope cannot support the requested decision.
+
+**Complete when:** the integration plan identifies the authoritative source,
+review representation, and each omission, proxy, or approximation.
 
 ## Separate the three review scales
 
 | Scale | Reviewer intent | Source responsibility |
 | --- | --- | --- |
-| Scene | Move a building with its contents, or one courtyard gate independently | One assembly or actor's placement |
-| Path | Reveal the gate earlier during arrival | Camera/aim controls and timing |
-| Asset | Make the gate's arch thinner | Canonical geometry and components |
+| Scene | Change one placement or one assembly and its owned contents | Actor or assembly placement data |
+| Experience | Change a reveal, view, camera route, aim, timing, or FOV | `NavigationSequence` inputs |
+| Asset | Change the canonical construction of a shared design | Asset geometry, components, and materials |
 
-Scene and Path use the same surrounding actors. Path treats those actors as
-read-only context. Asset review isolates a canonical design and its local
-construction. Preserve these boundaries when translating feedback.
+Scene and Experience use the same surrounding actors. Experience uses those
+actors as read-only context. Asset isolates one canonical design in its local
+frame. Preserve these boundaries when you map feedback to source.
+
+**Complete when:** every review subject belongs to Scene, Experience, or Asset
+at the scale of the requested decision.
 
 ## Choose actor boundaries
 
-Register an actor when its placement, proportions, silhouette, material, or role
-in navigation can receive an independent design instruction. Register the roots
-already rendered by the website, after construction and loading complete.
+When a placement or independently selectable silhouette can receive a Scene
+instruction, register an actor. Register the roots that the website already
+renders. Register them after their hierarchy and required resources are ready.
+Do not create an actor only for material or navigation feedback. Expose a
+material under its Asset. Expose navigation as a `NavigationSequence` in
+Experience.
 
-For the courtyard example, expose the gate, steps, and nearby wall as distinct
-actors. Include enough ground and neighboring structures to judge clearance,
-scale, occlusion, and framing. Keep the gate's arch and hardware inside its asset.
+Include each context object whose omission changes a judgment about scale,
+clearance, occlusion, or framing.
+Register each rendered subtree once.
 
-| Structure | Review consequence | Preferred boundary |
-| --- | --- | --- |
-| Whole courtyard registered as one actor | Moving the gate also moves its surroundings | Gate, steps, wall, and necessary context |
-| Each gate fragment registered as an actor | Scene selection is crowded with construction detail | One gate actor with component hierarchy |
-| Same mesh registered through parent and child actors | Selection and feedback overlap | One registration owner per rendered subtree |
-| Only the gate registered | Clearance and arrival framing cannot be judged | Gate plus decision-relevant surroundings |
+| Condition | Use this boundary |
+| --- | --- |
+| One object must move without its surroundings | One actor for that object and separate actors for decision-relevant context |
+| Construction parts need local feedback | One actor with a named asset-component hierarchy |
+| Several placements use the same design | One actor ID per placement and one shared asset ID |
+| A helper, private object, or duplicate LOD is outside review scope | Keep it outside every registered root |
 
-Keep debug helpers, duplicate LODs, and private content outside registered
-subtrees. Registration traverses descendants: a hidden helper is not a reliable
-way to exclude data from review.
+**Complete when:** each independent placement decision has one actor and each
+rendered subtree has one registered root.
 
-## Separate placements and canonical assets
+## Separate placements, assets, and ownership
 
-Use one stable `actorId` per placement and one `assetId` per shared design:
+An assembly is a transform-only scene owner. It has no render geometry. World
+is the implicit owner when no assembly owns a placement. A named top-level owner,
+such as Street, is an ordinary assembly whose name and source reference come
+from the website.
 
-| Actor | Asset | Meaning |
-| --- | --- | --- |
-| `gate-courtyard-entry` | `courtyard-gate` | Entrance placement |
-| `gate-garden-exit` | `courtyard-gate` | Another placement of the same construction |
-| `gate-service-entry` | `service-gate` | A different design |
+Use one stable `actorId` for each placement. Use one stable `assetId` for each
+canonical design. Use an explicit assembly ID for coordinated scene ownership.
 
-Keep factories for canonical construction separate from placement data. A scene
-instruction changes one placement; an asset instruction changes the shared
-definition. Geometry or material variants need distinct asset IDs when the
-reviewer must distinguish them.
+| Relationship | Meaning |
+| --- | --- |
+| Actor to asset | A placement uses a canonical design. |
+| Actor to assembly | A placement belongs to an authored place or owner. |
+| Category or layer | The editor groups or controls display. It does not define ownership. |
 
-Ownership is a third relationship: a chair can belong to a room while sharing
-its canonical design with chairs in other buildings. Physical attachment is not
-the ownership boundary. Use explicit assemblies for authored places and rooms
-when the installed SDK supports `scene-assemblies-v1`; keep child actors
-independently addressable. Do not turn a building and all its furniture into one
-canonical asset to obtain coordinated movement. An asset's own legs, panels,
-and other construction parts can remain asset components.
+Keep canonical construction separate from placement data. Give variants
+different asset IDs when a reviewer must distinguish their geometry or
+materials.
 
-The current registry takes the first ordered registration for each `assetId` as
-the canonical asset. All registrations sharing that ID must therefore agree on
-local construction and materials. Name roots inside the factory before placing
-them; this prevents a placement label from becoming a component's identity.
-Keep the canonical representative and registration order deterministic.
+When the installed SDK supports `scene-assemblies-v1`, use
+`registerAssembly()` and `parentAssemblyId`. The bridge negotiates hierarchy
+with each consumer. Use the
+[ownership-first scene contract](../docs/ownership-first-scene.md) for transform,
+visibility, scaling, fallback, and compatibility rules.
 
-## Decide assembly ownership explicitly
+When the current SDK serves a consumer that does not negotiate
+`scene-assemblies-v1`, use its automatic flat fallback. Do not add a second
+registration for that consumer. Record the lost inherited movement, visibility,
+and assembly editing.
 
-Independent selection does not imply independent ownership. An AC unit can be
-a useful individual review target while belonging to a building; a wheel can
-be a useful component while belonging to a vehicle. Before registering these
-parts, decide whether moving, rotating, scaling, or hiding the owner should
-also affect them. Record the owner in authoritative placement data rather than
-inferring it from proximity, names, or shared materials.
+When an older SDK cannot register assemblies, choose one legacy representation.
+Use one actor with named asset components for coordinated movement. Use
+independent actors for separate placement feedback. Do not publish both
+representations as the same actor set.
 
-Keep three relationships distinct:
+Use construction and placement data to define ownership. Keep rendering batches,
+proximity, names, categories, and material sharing outside ownership logic.
 
-| Relationship | Example | What it means |
-| --- | --- | --- |
-| Shared design | AC units on two different buildings use one `assetId` | Reusable construction, not a common scene parent |
-| Assembly membership | Building BE1 owns its attached AC unit | Intended coordinated placement and visibility |
-| Catalog grouping | AC units appear under a Fixtures category | Browsing organization, not transform inheritance |
+**Complete when:** each placement, canonical design, and owner has a stable and
+independent identity. Each consumer in the compatibility target has an explicit
+hierarchy result.
 
-With `scene-assemblies-v1`, use the explicit transform-only owners and independent
-placements in the [ownership-first contract](../docs/ownership-first-scene.md).
-For legacy flat captures without this capability, actor records provide no
-inherited ownership. `AssetNode.parentId` describes components **inside one asset**;
-it does not parent one scene actor to another. A source `Object3D` parent, an
-actor-ID prefix, a tag, a category, or a scene layer does not establish inherited
-actor transforms in the editor. A display group with a count of one is also
-unrelated to an asset's component count.
+## Organize asset components
 
-For a legacy producer or editor, choose and document a supported representation:
+Name each component for the construction part that a reviewer can discuss.
+Group mesh fragments that have one construction responsibility. Keep separate
+components when they need separate instructions.
 
-- If coordinated assembly edits are the priority, register the assembly once
-  and retain attached parts as named asset components. Moving the assembly in
-  Scene then includes its parts; Asset review targets the parts locally. Do not
-  also register those descendants as independent actors, which duplicates their
-  geometry and review ownership. Only share the assembly's `assetId` between
-  placements with the same local construction and materials.
-- If independent scene placement and shared canonical part assets are required,
-  register the parts separately, retain their ownership in source, and explicitly
-  report that the current editor cannot move or hide the owner and parts as one
-  assembly. This is a limitation, not a complete ownership handoff.
-- If both independent child actors and inherited assembly editing are required,
-  identify a protocol/SDK/editor capability gap. Do not invent a parent field or
-  promise that naming, categories, or a custom scene manifest implements it.
-  Follow the [protocol change process](../docs/governance/protocol-changes.md)
-  before extending that contract.
+Use a stable asset-local origin, orientation, hierarchy, and child order. Keep
+placement transforms outside canonical construction. For a registration with
+multiple sibling `roots`, keep root order stable. The first root defines the
+asset frame.
 
-For optimized or procedural scenes, choose ownership from construction and
-placement data, not draw-call or material batches. Review-only representations
-may restore those boundaries without changing rendering, but must retain one
-registration owner per rendered part and reproduce its original world pose.
-
-## Organize components around construction
-
-Give each component a name that identifies the part a reviewer can discuss:
-
-```text
-Courtyard gate
-├── Masonry
-│   ├── Left pier
-│   ├── Right pier
-│   └── Arch ring
-├── Door
-│   ├── Timber leaf
-│   └── Iron hardware
-└── Drainage channel
-```
-
-Preserve separate meshes where separate instructions are useful. Group fragments
-that serve one construction responsibility. A flattened gate loses part-level
-targets; hundreds of unnamed fragments make selection ambiguous.
-
-Use a stable local origin, orientation, and child order. Keep placement transforms
-outside internal construction. When an actor uses multiple sibling `roots`, the
-serializer uses the first root's world transform as the asset frame; root order
-is therefore part of the integration contract.
+**Complete when:** each reviewable construction part has a stable name,
+asset-local hierarchy, transform, and order.
 
 ## Preserve identity and source mapping
 
-IDs identify targets across builds. Names identify them to people. `sourceRef`
-connects feedback to implementation.
+Apply the [stable semantic ID and searchable source reference definitions](install.md#terms).
 
-Use authored semantic IDs such as `gate-courtyard-entry`, `arrival`, and
-`gate-reveal-camera-in`. Give materials role-specific names such as
-`Weathered limestone` and `Painted iron`. Use durable source references such as
-`src/scene/gates.ts#courtyardEntry`, with placement definitions that lead to the
-canonical factory they instantiate.
+Use semantic IDs for actors, assets, assemblies, asset nodes, materials,
+journeys, stops, segments, and points. Use names for human recognition. Use
+`sourceRef` for source lookup where the protocol field exists.
 
-The Three.js serializer currently derives component IDs from the asset ID,
-object name, and hierarchy indices. Material IDs also depend on encounter order.
-Preserve names and ordering during unrelated edits. For intentional hierarchy
-changes, account for existing feedback targets before refreshing the baseline.
+Record a material's authoritative definition in the integration plan because
+`AssetMaterial` has no `sourceRef` field. Identify a texture map by its stable
+material ID and map slot. Record its authoritative construction beside the
+material mapping. Do not use the texture source URL as a code reference.
 
-The serializer generates component references by appending a component ID to the
-registration's `sourceRef`; it does not discover each mesh's source symbol or
-read arbitrary per-node source annotations. Keep named construction traceable
-from that registration reference. Verify generated references by resolving an
-exported component back to its factory or content node.
+Keep object names, hierarchy order, material order, and registration order
+stable when the target identity does not change. When identity changes, map the
+old target to the new target or start a new review baseline.
+
+Resolve each generated component reference to its canonical factory or content
+definition. The Three.js serializer does not discover arbitrary source symbols
+inside a mesh.
+
+**Complete when:** every addressable review subject has stable protocol
+identity. Every subject maps to an authoritative definition through its
+`sourceRef` or the integration plan. Every texture map uses a stable material ID
+and slot.
 
 ## Keep spatial feedback reversible
 
-Use the same world axes and metres for actors and navigation. Record any
-conversion from runtime units or parent-local coordinates beside the adapter,
-including how to convert feedback back. Object Euler rotations are serialized
-in degrees; texture-map rotation retains its separate texture convention.
+Use metres and the same world axes for actors and navigation. Record each unit
+or coordinate conversion beside its adapter. Record the inverse conversion for
+feedback.
 
-| Feedback | Interpretation |
+The imported editor actor frame is the actor-local frame reconstructed from the
+captured world transform. Convert feedback through the inverse capture-axis and
+unit conversion before you apply it in the source parent frame. The editing
+frame is the local frame of the selected review subject. For a flat actor, it is
+the imported editor actor frame. For an asset component, it is component-local.
+
+| Feedback | Coordinate meaning |
 | --- | --- |
-| Flat scene position, rotation, size | Legacy editor actor frame; `size` is dimensions in metres |
-| Ownership-aware assembly/placement operation | Explicit parent-local position, XYZ rotation in degrees, dimensionless scale, and owner ID |
-| Asset part position, rotation, scale | Component transform relative to its parent |
-| Path camera/aim position | World-space position in metres |
-| Scene surface pin | Object-local anchor |
-| Asset surface pin | Component-local anchor, optionally with normal, UV, and instance ID |
+| Flat Scene transform | Imported editor actor frame; size is in metres |
+| Assembly or owned actor transform | Parent-local position, XYZ rotation in degrees, scale, and owner ID |
+| Asset component transform | Component-local transform |
+| Experience camera or aim point | World-space position in metres |
+| Scene surface anchor | Actor-local anchor |
+| Asset surface anchor | Component-local anchor with optional normal, UV, and instance ID |
 
-For legacy flat live actors, the scene editor starts from a world-aligned, bounds-centered
-frame. Its pivot can differ from the original Three.js root. Translate scene
-transform intent through the imported frame and source transform; assigning
-exported `size` directly to `Object3D.scale`, or treating the bounds center as the
-source pivot, changes the meaning.
+For a flat actor, translate feedback through the imported frame and the source
+transform. The bounds center can differ from the source pivot.
 
-Ownership-aware actors instead use the source root's explicit frame and local
-pose. The wire `transform` remains world-space, and `localTransform` is a separate
-field. Apply one assembly operation to its owner; never also replay its derived
-child world changes. For reparent operations, update final ownership and apply
-the supplied absolute local pose; keep the actor/asset IDs stable.
+For an owned actor, apply the assembly operation once. Keep each derived child
+world transform out of the source change. For reparenting, set the new owner and
+the supplied absolute local pose. Preserve the actor ID and asset ID.
 
-Keep geometry bounds separate from that source-root pivot: an offset mesh can be
-far from its root origin. Transform the captured world-space bounds into the
-editing frame for selection, focus, and placeholders; do not move the pivot to
-make those bounds fit.
+Keep geometry bounds separate from the source pivot. Transform the captured
+bounds into the editing frame for selection, focus, and placeholders.
 
-## Scene organization
+**Complete when:** each feedback coordinate can be converted to source and back
+without applying a derived transform twice.
 
-Organize Scene around authored places and their contents. Use names and
-registration order to keep those places recognizable; keep categories and asset
-types as filters or alternative views. The Asset library can remain type-based.
-Include only context that supports a review decision. An authored lightweight
-terrain or background proxy can reduce cost when its missing detail is irrelevant;
-identify it as a proxy and retain detailed assets for construction review.
+## Organize Scene context
 
-An assembly is a transform-only owner, not another geometry registration. Expose
-the building structure, roof fixtures, and loose furniture once each under their
-authored owners. Street litter and cross-building cables need an explicit owner
-(possibly Street or World); never infer ownership from proximity. Keep the game's
-scene construction and batching unchanged. Sharing geometry resources across
-independent Object3Ds is not duplicate registration.
+Organize Scene around authored places and their contents. Use categories and
+layers as independent display controls. Use an explicit World or Street owner
+for content that crosses place boundaries.
 
-With assemblies, a single registration root's visibility controls its placement;
-descendant visibility still describes components. In a multi-root registration,
-preserve every root's individual visibility as component state. Use the
-registration's `visible` option for whole-placement visibility instead of
-overwriting those root flags. Flat fallback must retain hidden component choices.
+When missing detail cannot change the review decision, use a lightweight
+context proxy. Name the proxy and record its limitation. Keep canonical Asset
+detail available when construction feedback remains in scope.
 
-Read [Ownership-first scene contract](../docs/ownership-first-scene.md) for the
-accepted contract, positive uniform assembly scaling, visibility inheritance,
-capability negotiation, compatibility fallback, and release status.
-If the installed SDK or editor lacks support, retain flat actors and clearly
-report that assembly editing is unavailable. Categories/layers are not a
-substitute for coordinated transforms.
-
-In the current editor, newly imported live actors enter the `Website scene`
-layer. Registration `category` does not automatically create layers or locks.
-When grouping and locking are required, author a scene manifest with explicit
-`layers`, object `layerId` values, stable actor/asset links, and source references.
-Check that organization after live reconciliation as well as static import.
-
-The ownership view is primary in an assembly-capable editor. Layers remain
-independent display/lock controls, not inferred ownership. Moving an assembly
-containing a locked-layer actor is disabled until its layer is unlocked.
+**Complete when:** Scene contains each named context object whose omission would
+change a composition decision. The integration plan records every context proxy
+limitation.
 
 ## Preserve material and geometry evidence
 
-Use the `scene` profile for composition and the `review` profile for asset detail.
-Both retain hierarchy and silhouette geometry. The scene profile omits supplied
-normals, UVs, and texture maps; it does not decimate polygons. Choose registration
-boundaries and explicit context proxies accordingly.
+Run this material preflight for each decision-relevant registered renderable.
+A renderable is decision-relevant when an appearance error can change the
+requested review decision:
 
-For asset review, preserve material assignments, geometry groups, normals, UVs,
-and supported texture slots needed to judge the design. Retain texture source
-URLs when available; annotate cloned or custom-loaded textures explicitly:
+- Identify custom shader materials and shader injection.
+- Identify textures stored only in custom uniforms or application metadata.
+- Identify triplanar, world-space, procedural, or non-UV projection.
+- Identify vertex colors or custom attributes that carry essential appearance.
+- Identify neutral base colors whose visible result comes from another stage.
+- Identify geometry without compatible UVs.
+- Identify texture references without an exportable image source.
+- Identify credentials, signatures, tokens, or session identifiers in
+  `sourceRef`, `requestUrl`, `currentSrc`, and `src` strings.
+
+Select one representation for each affected material:
+
+A declared simple approximation preserves each decision-relevant supported
+field. It labels every unsupported shading effect. A minimal review-only proxy
+contains only the geometry or component boundary needed for a planned decision.
+
+| Source condition | Review representation |
+| --- | --- |
+| Supported material and compatible UVs | Export supported material fields and map slots. |
+| Custom appearance with a declared simple approximation | Use a capture-only material or a review-safe base color. |
+| Optimized rendering removed a planned decision boundary | Use a minimal review-only proxy that restores that boundary. |
+| No faithful or useful approximation exists | Record that appearance review is unsupported. |
+
+This example creates a capture-only approximation. It keeps source geometry and
+uses a review-safe material. It does not change the ordinary page:
 
 ```ts
-wallTexture.name = "Weathered limestone albedo";
-wallTexture.userData.sourceRef = wallTextureUrl;
-wallMaterial.name = "Weathered limestone";
+const reviewMaterial = new THREE.MeshStandardMaterial({
+  name: "Review sandstone approximation",
+  color: 0xb96f45,
+  roughness: 0.82,
+});
+
+const reviewRoot = sourceRoot.clone(true);
+reviewRoot.traverse((object) => {
+  if ((object as THREE.Mesh).isMesh) {
+    (object as THREE.Mesh).material = reviewMaterial;
+  }
+});
+
+registry.register({
+  actorId: "canyon-wall",
+  assetId: "canyon-wall",
+  name: "Canyon wall",
+  category: "Terrain",
+  sourceRef: "src/terrain/canyon-wall.ts#sourceRoot",
+  root: reviewRoot,
+});
+
+const disposeReviewRepresentation = () => reviewMaterial.dispose();
 ```
 
-Live transfer can supply generated or non-CORS textures from registered image
-data. For transport configuration, use the
-[integration reference](../docs/integrating-a-website.md). A resource ID is a
-session transport address, not a durable feedback target.
+When one approximation is correct for all affected meshes, use one shared
+review material. When source roles differ, use separate named materials.
+Call `disposeReviewRepresentation()` during capture teardown. Dispose only
+capture-owned materials.
 
-The review renderer does not reproduce arbitrary shaders, postprocessing, or
-the website's lighting pipeline. State any approximation that affects the
-decision and compare the real website when appearance depends on those effects.
+Use the `scene` profile for composition. It omits supplied normals, UVs, and
+texture maps. A review-safe base color gives a distinguishable and honest
+approximation of the source appearance. Use it for texture-driven materials so
+Scene remains legible.
+
+Use the `review` profile for Asset detail. Preserve component hierarchy,
+geometry groups, normals, UVs, supported material fields, and supported texture
+slots.
+
+Keep an original stable texture source URL in `texture.userData.sourceRef` when
+one exists. This protocol field does not contain a searchable source reference.
+Make generated and live-only texture sources exportable through the capture
+bridge. A resource ID is a session transport address. It is not a feedback
+identity.
+
+Use only a credential-free stable URL as `texture.userData.sourceRef`. When the
+source URL contains credentials, a signature, a token, or a session identifier,
+omit it from the review representation. Use a capture-only texture with cleared
+URL metadata. Make its decoded source available through the capture bridge. Do not
+remove secret fields from a texture that the ordinary page still owns.
+
+Give a changed appearance a new build ID or representation revision. This
+prevents saved consumer state from retaining stale material data.
+
+Inspect each affected subject without selection highlighting. Compare Scene and
+Asset with the live website. Use these result classes:
+
+| Class | Checkable threshold |
+| --- | --- |
+| Faithful | The deterministic comparison has no decision-relevant visual difference. |
+| Intentionally approximate | Every visual difference is recorded. The reviewer confirms that no difference can change the named review decision. |
+| Unsuitable | A missing, misleading, or unverified difference can change the named review decision. |
+
+Use [Integrating a website](../docs/integrating-a-website.md#transfer-textures)
+for transport requirements and failure checks.
+
+**Complete when:** each decision-relevant material has a faithful,
+intentionally approximate, or explicitly unsuitable result.
 
 ## Make navigation reviewable
 
-For the courtyard, expose an `Arrival` journey with recognizable stops such as
-`Approach`, `Gate reveal`, and `Courtyard`. Register the gate and surroundings so
-the reviewer can judge what appears, what is occluded, and where the camera fits.
+Export recognizable stops, authored camera and aim controls, segment timing,
+and FOV intent. Keep calculated output read-only. Apply
+[Export navigation sequences](exporting-navigation-sequences.md) to each
+selected journey.
 
-Preserve authored camera and aim controls, segment timing, and FOV intent. Keep
-calculated outputs distinguishable from editable inputs. For camera, scroll,
-or guided-view routes, follow
-[Export navigation sequences](exporting-navigation-sequences.md) for the mapping,
-editor capabilities, and checks.
+**Complete when:** each selected journey exposes recognizable stops and
+traceable authored camera, aim, timing, and FOV inputs.
 
-## Keep review performance bounded
+## Keep performance bounded
 
-Review structure and performance are coupled. An actor boundary that creates
-thousands of separately retained roots, an asset that serializes an entire world
-for one selection, or a capture page that runs the full game in every editor
-frame is not a complete integration even when its schema is valid.
+Apply the [Spatial Review performance screen](../docs/performance-profile.md)
+when integration code runs on the ordinary page. Also apply it when the change
+modifies shared rendering, state, routing, input, or lifecycle code.
 
-Use the authoritative rendered roots when they already have the right semantic
-boundaries. Do not clone the full scene for review convenience. When optimized
-rendering erased needed boundaries, build the smallest review-only representation
-that restores them, share immutable resources, and dispose it through the SDK's
-ownership contract. Never trade away stable actor IDs or meaningful component
-selection merely to reduce draw calls or catalog entries.
+Select actor and asset boundaries that preserve stable identity. Provide one
+selection target for each planned decision. Use deferred representations for
+expensive procedural or review-only geometry. Use accurate bounds, immutable
+revisions, cancellation, byte limits, queue limits, concurrency limits, bounded
+caches, and complete teardown.
 
-Classify each expensive asset before choosing its transport:
+Keep the ordinary page free of continuous review-only frame and memory work. A
+same-document bridge and registry may reuse the website scene when the ordinary
+page passes the performance screen. Do not construct a duplicate scene for that
+integration. When freezing capture-only simulation and presentation does not
+change registered evidence, freeze that work.
 
-| Asset behavior | Preferred approach |
-| --- | --- |
-| Already rendered, modest hierarchy | Eager `register()`; progressive transfer keeps geometry serialization request-driven |
-| Already rendered, expensive full detail | Eager registration with measured bridge limits, or deferred metadata backed by accurate known bounds when inspection itself is costly |
-| Review-only and cheap | Construct once after authoritative data is ready; release it on teardown |
-| Review-only and expensive/procedural | `registerDeferred()` with immutable overview/detail revisions, cancellation, progress, and a bounded producer |
-| Repeated placement data | Preserve actor identities; share one canonical asset and use typed instance transport where the review boundary supports instances |
-
-A deferred catalog is metadata, not permission to guess. Its world transform and
-bounds must match the produced representation, its byte/triangle estimates must
-be credible, and one revision must always mean the same immutable result. An
-overview may simplify detail only when it preserves the placement, silhouette,
-and context needed for Scene review; Asset detail must retain the construction
-evidence promised by the integration. Maintain an eager fallback or explicitly
-record the minimum editor capability when legacy peers still matter.
-
-Treat the protocol's exported safety limits as authoring constraints, not just
-last-minute validator errors. Build identities are bounded, component material
-slot arrays and their per-asset aggregate must stay bounded, and geometry groups
-must fit both the geometry draw range and the component's multi-material slots.
-Split a genuinely larger design into meaningful review components instead of
-emitting giant repeated material arrays or synthetic draw groups.
-
-Treat the capture document as a resource worker as well as a visible page. Freeze
-unrelated simulation and animation, avoid continuous rendering when a deterministic
-frame is sufficient, cap device pixel ratio, and disable presentation-only GPU
-passes only when registered geometry, materials, transforms, textures, and source
-mapping remain unchanged. Bound per-request bytes, queued work, concurrency, and
-aggregate in-flight memory. Producers must respond to cancellation and must not
-leave timers, workers, GPU resources, or shared cache entries alive after detach.
-
-Measure both sides of the integration: the ordinary website must not pay material
-startup, frame, or memory cost merely because discovery is installed, while the
-capture must publish metadata promptly and remain responsive during overview and
-detail requests. Test refresh and at least one concurrent/multiple-frame scenario;
-editor source frames can coexist, so per-frame loops and caches must not scale
-without a documented bound.
+**Complete when:** the ordinary-page baseline stays within budget and all
+capture work, transfers, caches, and teardown stay within recorded limits.
 
 ## Preserve the feedback loop
 
-Editor changes express intent. Implement them in authoritative source, then
-refresh and compare the result in both the editor and website. Retain IDs for
-targets that still represent the same thing.
+Use these terms in this section:
 
-When replacing a component-based building export (including the v6 game adapter),
-explicitly map old review targets or start a new review baseline. Do not migrate
-component comments to similarly named actors by guesswork. Retain old review sets;
-unmatched ownership intent is exported separately for manual migration. A refresh
-shows the source baseline, retains unapplied local intent, and retires an operation
-when source matches it, without replaying both parent and child movement.
+- **Local operation:** a proposed editor change that is not yet in source.
+- **Review set:** saved feedback and proposed operations for one review
+  baseline.
+- **Compact feedback export:** an editor-produced payload that contains selected
+  feedback for implementation. Its `kind` identifies the feedback schema.
+- **Full review export:** an editor-produced payload that contains the complete
+  review set for continued review work.
+- **Retire:** remove a pending local operation after the refreshed source
+  contains its intended result.
 
-Use compact agent feedback for implementation instructions and a full review set
-for continuing a session. The compact export intentionally omits mesh buffers
-and unchanged content; resolve targets through identity and source references.
-Check the export's schema and `kind` before treating it as a complete scene.
+Apply editor feedback to authoritative source. Refresh both the website and the
+review representation. When the refreshed source matches a local operation,
+retire that operation.
+
+When identity changes, keep old review sets. Map old targets explicitly. Keep
+unmatched feedback for manual migration.
+
+Use a compact feedback export for implementation instructions. Use a full
+review export to continue a review session. Check the export schema and `kind`
+before you treat it as a complete scene or asset document.
+
+**Complete when:**
+
+- Refreshed source contains each applied intent.
+- Each matching local operation is retired.
+- The review set preserves unresolved feedback.
 
 ## Acceptance checklist
 
-Before completing the review-structure step, account for every intended target:
+Account for every review subject before you complete the structure step:
 
-- Each actor is independently selectable at the scale of a placement decision.
-- Repeated placements share construction without losing their individual IDs.
-- Moving/rotating a building carries owned structure, fixtures, and furniture,
-  but not other buildings or street objects; child-local poses remain unchanged.
-- Children remain independently selectable, movable, and reparentable with their
-  world pose preserved; parent hide/show preserves each child's hidden choice.
-- Every rendered piece has exactly one registration owner; assemblies add no
-  geometry and do not change source batching.
-- Feedback distinguishes assembly placement, individual placement, reparenting,
-  and canonical asset construction, and refresh does not double-apply transforms.
-- Attached fixtures and parts have an explicit ownership decision: assembly
-  placement, asset component, independent actor with a documented limitation, or
-  a capability gap.
-- Moving and hiding a representative owner affects exactly the intended parts,
-  or the unsupported behavior is reported; unrelated owners remain unchanged.
-- Each asset exposes the parts and materials needed for specific feedback.
-- Each journey has recognizable moments and traceable authored inputs.
-- Each source mapping includes enough information to reverse coordinate changes.
-- Context, proxies, unsupported effects, and intentional exclusions are recorded.
-- The ordinary website retains its measured startup/frame behavior, and discovery
-  does not eagerly construct or serialize review-only detail.
-- Capture-specific quality reductions remove only presentation work; registered
-  review evidence and documented fidelity remain intact.
-- Expensive producers have accurate metadata, immutable revisions, cancellation,
-  byte/concurrency/in-flight limits, bounded caches, and teardown coverage.
-- Capture readiness, overview/detail requests, refresh, and concurrent editor
-  frames complete without unbounded CPU, GPU, or memory growth.
+- Each actor is selectable at the scale of one placement decision.
+- Repeated placements share canonical construction and keep individual actor IDs.
+- Each rendered piece has one registration owner.
+- Each assembly is transform-only. Each nonempty assembly has explicit owned
+  actors. Each intentionally empty assembly has a recorded purpose and zero-size
+  bounds at its world pivot.
+- Each child remains independently selectable when the negotiated capability
+  supports independent owned actors.
+- Each asset exposes the components and materials needed for specific feedback.
+- Each affected material has a recorded representation decision.
+- Each decision-relevant texture has an exportable source or a recorded
+  limitation.
+- Each registered texture source string is free of credentials and secrets.
+- Each journey has recognizable stops and traceable authored inputs.
+- Each source mapping includes the inverse coordinate conversion.
+- Each proxy, approximation, exclusion, and capability limit is recorded.
+- Each expensive producer has accurate metadata, immutable revisions,
+  cancellation, budgets, bounded caches, and teardown evidence.
+- The ordinary page retains its ordinary-page baseline.
+- The capture matches the capture baseline.
 
-Then perform the [editor checks](install.md#6-verify-the-review-loop). For the
-courtyard, the reviewer must be able to move one gate, adjust its arrival reveal,
-and comment on its arch as three distinct instructions with distinct source owners.
+Return to the main procedure. Continue with
+[Complete the integration plan](install.md#complete-the-integration-plan). The
+main procedure continues with installation after it completes the plan.

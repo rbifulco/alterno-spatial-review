@@ -1,52 +1,47 @@
-# Integrating a website
+# Integrate a website
 
-Install the SDK, expose discovery from the ordinary website entry page, and
-register meaningful Three.js roots where they are created.
+Use this reference for bridge configuration, discovery, framing, and texture
+transport. Use [Install or update Spatial Review](../agents/install.md) for the
+complete procedure and acceptance matrix.
 
-For buildings, rooms, and owned contents, follow the
-[ownership-first scene contract](ownership-first-scene.md). Register transform-only
-assemblies separately from render actors; categories do not establish ownership.
-The assembly extension is accepted in
-[Protocol change issue #11](https://github.com/rbifulco/alterno-spatial-review/issues/11)
-and awaits package release. Retain flat exports when the installed SDK lacks it.
+## Configure review access
 
-Before registering attached fixtures or parts, decide their
-[assembly ownership](../agents/structuring-for-review.md#decide-assembly-ownership-explicitly).
-Shared asset IDs and catalog categories do not parent actors. For legacy flat
-captures, coordinated building/fixture edits require one assembly
-actor with asset components, or an explicitly documented capability limitation
-when the fixtures must remain independent scene actors.
+Use [Obtain permission](../agents/install.md#1-obtain-permission) as the source
+of truth for authorization decisions and disclosed data.
+Use the definitions of terminal result and settled demand in
+[Terms](../agents/install.md#terms).
 
-## Review access and the official editor
+Package installation does not start a bridge. A started capture bridge sends a
+readiness announcement to its parent or opener before request authorization.
+The announcement contains build identity, counts, capabilities, and transfer
+limits. It contains no protected catalog or texture bytes. The discovery bridge
+sends no readiness announcement.
 
-Installing the npm package does not run a bridge or expose website data. The
-authorization takes effect when the website calls the discovery or scene bridge
-functions. Both bridges trust the exact official editor origin
-`https://spatial-review.alterno.dev` by default.
+The official editor origin is `https://spatial-review.alterno.dev`.
+Use the recorded permission decision for `allowOfficialEditor` and
+`allowedOrigins`.
 
-This permits the hosted editor to embed the page and request only the discovery
-metadata, registered scene/asset structures, and registered texture bytes that
-the integration deliberately exposes. It does not grant access to arbitrary DOM,
-application state, credentials, or unregistered scene objects.
+A loopback website accepts requests from other loopback origins. Use this
+exception only for local development. Production websites use the configured
+exact-origin policy.
 
-Set `allowOfficialEditor: false` on both bridges to opt out. Origins for
-self-hosted or additional editors remain opt-in through `allowedOrigins`.
-
-The postMessage path embeds the discovery and live-capture pages. Their HTTP
-framing policy must therefore allow the exact editor origin. When the site uses
-a Content Security Policy, retain its existing entries and add the official
-editor explicitly:
+Apply the framing decision from the permission record. When the website uses
+Content Security Policy, add the approved origin to the HTTP response header:
 
 ```http
 Content-Security-Policy: frame-ancestors 'self' https://spatial-review.alterno.dev
 ```
 
-`frame-ancestors` must be delivered as an HTTP response header; a `<meta>` tag
-cannot set it. An `X-Frame-Options: DENY` or `SAMEORIGIN` header will still block
-the cross-origin editor and must not be sent on pages intended for live review.
-Scope framing permission to the discovery/capture pages when the application's
-routing and discovery approach permits it. Never replace the exact origin with
-`*` or broadly disable anti-framing protection.
+A `<meta>` element cannot set `frame-ancestors`. Remove a conflicting
+`X-Frame-Options` header from the review routes. Keep anti-framing protection on
+other routes. Use exact origins. Keep wildcard origins out of the policy.
+
+**Complete when:** bridge options and framing headers match the permission
+record. Other routes keep their existing anti-framing protection.
+
+## Configure discovery and capture
+
+Keep bridge configuration in one integration module:
 
 ```ts
 import {
@@ -55,106 +50,169 @@ import {
   attachSpatialReviewDiscoveryBridge,
 } from "@alterno-dev/spatial-review";
 
+const authorization = {
+  allowOfficialEditor: true, // Use the recorded permission decision.
+  allowedOrigins: [],
+};
+
 attachSpatialReviewDiscoveryBridge({
   name: "My spatial project",
   liveCapture: "/?spatial-review-capture=1",
-}, {
-  // This is the default, written explicitly to document the authorization.
-  allowOfficialEditor: true,
-});
+}, authorization);
 
-const registry = new SceneAssetRegistry("my-site-v1");
+const registry = new SceneAssetRegistry("release-or-commit-id");
+
 registry.register({
   actorId: "main-building",
   assetId: "main-building",
   name: "Main building",
   category: "Architecture",
-  sourceRef: "src/scene/building.ts",
+  sourceRef: "src/scene/building.ts#mainBuilding",
   root: mainBuilding,
 });
 
-// Optional: expose an authored camera journey for spatial motion review.
 registry.registerNavigationSequence(arrivalJourneyForReview);
 
-attachSceneAssetRegistryBridge(registry, {
-  allowOfficialEditor: true,
+const detachCapture = attachSceneAssetRegistryBridge(registry, {
+  ...authorization,
+  maxGeometryBytes: 64 * 1024 * 1024,
+  maxConcurrentAssetRequests: 2,
+  maxInFlightBytes: 96 * 1024 * 1024,
+  maxQueuedAssetRequests: 24,
 });
 ```
 
-Large or procedural scenes can publish actor bounds and overview/detail
-metadata before generating geometry. Use `registerDeferred()` and configure the
-bridge's concurrency and in-flight byte ceilings; its producer receives an
-`AbortSignal`, request priority, and bounded progress callback. Keep eager
-`register()` entries for any assets that must remain available to editors that
-do not negotiate `asset-stream-v1`. The full API, cache identity, typed-instance
-encoding, and migration rules are in
+This example uses the current catalog lifecycle. It completes registration
+before bridge attachment. The first requested catalog becomes `catalog-ready`.
+
+Apply the authoritative lifecycle in
+[Implement the representation](../agents/install.md#4-implement-the-representation).
+That procedure defines the required registration order and status limits.
+
+Call each detach function on unmount or hot reload. Release capture-owned
+resources after the last capture bridge detaches.
+
+Use `registerAssembly()` for transform-only owners when the installed SDK
+supports `scene-assemblies-v1`. The bridge negotiates hierarchy with each
+consumer. Use
+[Structure a website for review](../agents/structuring-for-review.md) for actor,
+asset, ownership, and material decisions.
+
+Use `registerDeferred()` for expensive geometry. Configure queue, concurrency,
+per-request byte, and aggregate byte limits. Apply
 [Deferred asset streaming](deferred-asset-streaming.md).
 
-A navigation sequence carries camera and aim trajectories, named stops,
-relative segment timing, and FOV transitions. Keep its stop, segment, and point
-IDs stable and give authored controls source references so feedback can map
-back to code. Follow [Export navigation sequences](../agents/exporting-navigation-sequences.md)
-for the complete semantic mapping and verification procedure.
+**Complete when:** one integration module owns both bridges, the registry, the
+selected lifecycle, and teardown.
 
-After deployment, open the website directly in the hosted editor:
+## Publish static discovery
 
-```ts
-import { spatialReviewEditorUrl } from "@alterno-dev/spatial-review";
+The discovery bridge is sufficient for browser review. Publish a discovery
+document when CLI validation or non-browser discovery is required.
 
-const reviewUrl = spatialReviewEditorUrl("https://project.example");
+The canonical path is:
+
+```text
+/.well-known/spatial-review.json
 ```
 
-Optionally publish a discovery document with at least one of `scene`, `assets`,
-or `liveCapture` for CLI validation and non-browser tools. The canonical
-location is `/.well-known/spatial-review.json`. A project hosted below an origin,
-such as GitHub Pages, may instead publish the document below its project path:
+Use a project-relative path when the application cannot write to the origin
+root:
 
 ```text
 https://owner.github.io/project/.well-known/spatial-review.json
 ```
 
-The editor and CLI try the canonical origin-root location before the
-project-relative location. Supply an explicit same-origin locator when the
-document lives elsewhere:
+The editor and CLI try the origin-root document before the project-relative
+document. An explicit same-origin locator can select another path.
 
-```ts
-const reviewUrl = spatialReviewEditorUrl("https://owner.github.io/project/", {
-  discoveryUrl: "https://owner.github.io/project/review-manifest.json",
-});
+Resolve relative fields from the final discovery-document URL. Keep redirects
+on the same origin. Enable CORS when a browser requests a static discovery
+document across origins. The CLI does not require CORS.
 
-attachSpatialReviewDiscoveryBridge({
-  name: "My spatial project",
-  websiteUrl: "https://owner.github.io/project/",
-  discoveryUrl: "/project/review-manifest.json",
-  liveCapture: "/project/?spatial-review-capture=1",
-});
+Some deployment systems omit dot-directories. For GitHub Pages Actions, use:
+
+```yaml
+- uses: actions/upload-pages-artifact@v5
+  with:
+    path: dist
+    include-hidden-files: true
 ```
 
-The bridge's `discoveryUrl` is locator metadata and is not added to the
-discovery JSON. Static discovery responses must allow CORS for the editor or CLI.
-The editor falls back to the origin-checked browser bridge only after all static
-candidates fail, so client-only integrations remain supported.
+After deployment, request each advertised URL directly. Verify its response and
+schema. Browser fallback does not prove that an advertised static URL works.
 
-Resolve relative fields from the discovery document's final response URL, not
-from the entered website URL. Keep redirects on the same origin. IDs must remain
-stable between builds. For runtime or cloned textures, assign their original URL
-to `texture.userData.sourceRef` when the texture itself no longer retains it.
+**Complete when:** every advertised static URL returns a valid document from
+its deployed location.
 
-The discovery bridge makes the live path fully client-only: the editor embeds
-the supplied website URL and requests this metadata with `postMessage`. The
-well-known document remains useful for CLI validation and as a direct CORS
-optimization, but the editor does not require CORS or a discovery backend.
+## Transfer textures
 
-Live texture resources use the same `postMessage` bridge as the scene catalog.
-The editor may try a direct CORS-enabled URL first, but CORS is not required:
-it requests unavailable textures from the embedded website and the SDK returns
-their encoded bytes as transferable `ArrayBuffer` values. Keep the capture page
-alive while its live assets are being reviewed. During the catalog handshake,
-the editor and SDK advertise their limits and use the lower value. The SDK
-defaults to 16 MB per texture; `maxResourceBytes` can lower or raise its offer,
-but it cannot override a lower editor limit.
+Keep an original stable, credential-free URL in `texture.userData.sourceRef`
+when one exists.
+The editor can try that URL before it requests the registered live resource.
 
-Loopback origins are mutually accepted during local development, so the editor
-and website can run on different ports. The official production default does
-not implicitly trust Netlify preview domains, lookalike domains, or other review
-tools; those require an exact additional origin.
+Before bridge attachment, inspect registered texture `sourceRef`, `requestUrl`,
+`currentSrc`, and `src` strings. The serializer copies supported strings into
+the catalog. It does not redact URL user information, signatures, query tokens,
+or session identifiers. For a sensitive URL, use a capture-only texture with
+cleared URL metadata and an exportable decoded source. Transfer that source
+through the capture bridge.
+
+A direct texture response must meet these conditions:
+
+- The response status is successful.
+- `Content-Type` starts with `image/`.
+- The response body contains decodable image bytes.
+- CORS permits the consumer when direct cross-origin loading is intended.
+
+The capture bridge can transfer generated textures and textures without direct
+CORS access. Make the decoded texture source exportable before the material
+representation becomes available.
+
+A safe decoded-image fallback has an image MIME type, decodable bytes, no
+credential-bearing source string, and a size within the negotiated resource
+limit. An actionable texture failure identifies the asset, material, map slot,
+attempted direct and live paths, and terminal reason.
+
+The SDK creates a resource ID when it serializes a supported texture map. The ID
+does not prove that transferable bytes are available. Verify the live result.
+Keep the capture page alive while the consumer requests live resources. Request
+each ID within the installed SDK's delivery grace.
+
+Deferred live texture owners have a 60-second delivery grace in the current
+SDK. After that grace, the bounded texture-owner cache can evict them. Geometry
+snapshots use separate entry and byte bounds. Texture-owner eviction invalidates
+the cached representation. Request the representation again to get current
+resource IDs. Give a changed texture representation a new revision.
+
+Test the representative texture path in the integration plan. When a failure
+class occurs, apply its required result. Do not inject every failure class during
+a standard installation.
+
+| Failure | Required result |
+| --- | --- |
+| Direct URL returns an error | The capture bridge succeeds or the consumer reports both failed paths. |
+| Direct URL has a non-image MIME type | The SDK uses a safe decoded-image fallback when supported, or reports an actionable failure. |
+| Texture has no exportable source | The integration records an unsupported appearance limitation. |
+| Published resource ID is unavailable | Classify the cause. A missing current producer registration fails the integration. An expired ID requires a regenerated representation and current ID. An ID that works in another view order identifies a consumer or editor defect. |
+| Transient resource failure | Retry reaches a terminal result without changing view order. |
+
+The negotiated peer limits bound each texture response. `maxResourceBytes` can
+change the producer offer. It cannot raise a lower consumer limit.
+
+**Complete when:** every decision-relevant texture has a successful direct or
+live result, or an explicit unsupported result. Every retry reaches a terminal
+result.
+
+## Verify the deployed integration
+
+Open the website directly and through the approved editor. Use
+`spatialReviewEditorUrl(websiteUrl)` to create an official-editor link.
+
+Run the production transport and browser checks in
+[Verify the review loop](../agents/install.md#6-verify-the-review-loop). Record
+direct discovery, browser discovery, direct texture, live texture, authorization,
+framing, refresh, and teardown as separate results.
+
+**Complete when:** the integration plan separates each result and identifies
+every unverified production check.

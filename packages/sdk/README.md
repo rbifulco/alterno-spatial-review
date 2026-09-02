@@ -3,7 +3,7 @@
 Register semantic Three.js roots and expose them to compatible review tools.
 The editor receives only explicitly registered objects.
 
-## Scene ownership (implementation draft)
+## Scene ownership
 
 Use `registerAssembly()` for explicit transform-only place/room owners and
 `parentAssemblyId` on actor registrations for their contents. Assemblies read an
@@ -12,32 +12,40 @@ its geometry. `toScene()` exports hierarchy and world-space compatibility data;
 `toScene(false)` provides a flattened fallback. The bridge negotiates
 `scene-assemblies-v1` explicitly and preserves the old flat producer path.
 Read the [complete example and migration rules](../../docs/ownership-first-scene.md)
-before adopting this unreleased extension. Every rendered subtree still needs
-exactly one geometry registration owner, independent of shared asset identity.
+before adopting this capability. Apply the registration-owner rule in
+[Choose actor boundaries](../../agents/structuring-for-review.md#choose-actor-boundaries).
 
 ## Official editor authorization
 
+Use [Obtain permission](../../agents/install.md#1-obtain-permission) for the
+authorization decision. This section describes the package behavior.
+
 Installing this package alone does not expose page data or start a bridge.
-Calling `attachSpatialReviewDiscoveryBridge()` or
-`attachSceneAssetRegistryBridge()` enables the corresponding browser bridge.
+`attachSpatialReviewDiscoveryBridge()` starts the discovery bridge.
+`attachSceneAssetRegistryBridge()` starts the capture bridge. In this document,
+browser bridge means either interface.
 By default, both functions trust the exact official Alterno editor origin:
 
 ```text
 https://spatial-review.alterno.dev
 ```
 
-That origin may request discovery metadata, registered scene and asset
-structures, and registered texture bytes. It does not receive arbitrary DOM,
-application state, credentials, or unregistered Three.js objects.
+Through the discovery bridge, that origin may request discovery metadata.
+Through the capture bridge, it may request registered roots and their supported
+descendants. Capture data can include scene and asset structures, descendant
+geometry, materials, textures, and registered texture bytes. Neither bridge
+exposes arbitrary DOM, cookies, storage, unrelated application state, or
+objects outside registered roots. The serializer can copy registered texture
+`sourceRef`, `requestUrl`, `currentSrc`, and `src` strings. The integration must
+remove credentials and secrets from those strings before bridge attachment.
 
-Write `allowOfficialEditor: true` in integration code when you want the
-authorization to remain explicit. Set it to `false` on both bridges to opt out.
-Use `allowedOrigins` to authorize any additional self-hosted editor origins.
+`allowOfficialEditor: true` enables the official editor origin.
+`allowOfficialEditor: false` disables it. `allowedOrigins` adds exact
+self-hosted editor origins.
 
-This default begins in version 0.3.0. The minor version boundary prevents
-existing `^0.2.x` consumers from receiving the new authorization through an
-automatic patch upgrade. Choose an explicit `allowOfficialEditor` value when
-upgrading.
+Both bridges always accept the website's own origin. When the website origin is
+loopback, they also accept other loopback origins. `allowOfficialEditor: false`
+does not disable these built-in cases.
 
 ```ts
 attachSpatialReviewDiscoveryBridge(registration, {
@@ -53,9 +61,10 @@ attachSceneAssetRegistryBridge(registry, {
 connects to the supplied website. It does not bypass the website's bridge origin
 checks.
 
-The browser bridge also requires the relevant website page to permit framing by
-the editor. This is a separate site-security decision; the SDK does not modify
-Content Security Policy or `X-Frame-Options` headers.
+When an editor embeds a website page, that page must permit framing by the
+editor. An editor that opens the page as a popup can use the opener bridge and
+does not require a framing exception. The SDK does not modify Content Security
+Policy or `X-Frame-Options` headers.
 
 `attachSpatialReviewDiscoveryBridge()` lets a client-only editor discover the
 website's live-capture URL through an embedded landing page. A direct CORS fetch
@@ -77,12 +86,12 @@ attachSpatialReviewDiscoveryBridge({
 ```
 
 Editors first try an explicit locator, the canonical origin-root locator, and
-the project-relative locator in order. They use this browser bridge only after
+the project-relative locator in order. They use the discovery bridge only after
 those static candidates fail. Existing root-only integrations and registrations
 without `discoveryUrl` retain their previous behavior.
 
 Registered texture maps receive session resource IDs. Compatible editors can
-request their bytes over the origin-checked browser bridge, so integrated
+request their bytes over the origin-checked capture bridge, so integrated
 websites do not need to expose texture CORS headers. Direct URL loading remains
 an optional editor optimization. The editor and website negotiate a per-resource
 byte limit during the catalog handshake and enforce the lower offer.
@@ -140,15 +149,15 @@ registry.unregister("removed-actor-id");
 
 `registry.cacheMetrics` exposes the latest inspection's matrix, bounds and
 geometry calculation counts and the number of cached asset variants.
-`toAsset(assetId, profile, compact)` serializes only the requested family;
+`toAsset(assetId, profile, compact)` serializes only the requested profile;
 `toReviewIndex(profile, false, true)` produces actors and asset descriptors
 without serializing geometry. Existing catalog methods continue to return JSON
 number arrays by default.
 
 The runtime shares geometry and materials between live builds of the same
 immutable definitions and view mode. Always release a built hierarchy with
-`disposeThreeAsset(root)`. Use `cloneThreeAssetObject(root)` for a retained preview
-clone, then dispose both hierarchies independently. Calling Three's raw
+`disposeThreeAsset(root)`. Use `cloneThreeAssetObject(root)` for a retained
+preview clone. Dispose both hierarchies independently. Calling Three's raw
 `geometry.dispose()` or `material.dispose()` on a shared resource bypasses this
 ownership contract. A `ThreeAssetResourceCache` can be supplied as the fourth
 argument of `buildThreeAsset` to scope sharing explicitly. Resources are released
@@ -174,7 +183,7 @@ are requested after geometry delivery, generated texture owners receive a
 so a later request regenerates valid IDs; detaching the final bridge clears all
 deferred session resources.
 For direct protocol implementations, see the
-[protocol package](../protocol/README.md).
+[progressive asset family contract](../protocol/README.md#progressive-asset-families).
 
 These capabilities require upgrading the SDK used by the integrated website.
 Upgrading an editor alone cannot enable partial catalogs on an older bridge.
@@ -205,6 +214,10 @@ fallback, and security limits.
 
 ## Register camera journeys
 
+Use [Export navigation sequences](../../agents/exporting-navigation-sequences.md)
+as the source of truth for identity, source mapping, editability, and curve
+selection. The example below shows the SDK field shape.
+
 `registerNavigationSequence()` exposes an engine-neutral, semantically named
 camera journey alongside registered scene actors. A sequence may use linear,
 quadratic Bézier, cubic Bézier, Catmull–Rom, or read-only sampled curves. It also
@@ -217,8 +230,8 @@ registry.registerNavigationSequence({
   name: "Arrival journey",
   sourceRef: "src/scene/rail.ts#arrivalJourney",
   stops: [
-    { id: "outside", name: "Outside", camera: [0, 1.7, 6], target: [0, 1.5, 0], fov: 50 },
-    { id: "inside", name: "Inside", camera: [4, 1.7, 1], target: [0, 1.5, 0], fov: 44 },
+    { id: "outside", name: "Outside", camera: [0, 1.7, 6], target: [0, 1.5, 0], fov: 50, sourceRef: "src/scene/rail.ts#outside" },
+    { id: "inside", name: "Inside", camera: [4, 1.7, 1], target: [0, 1.5, 0], fov: 44, sourceRef: "src/scene/rail.ts#inside" },
   ],
   segments: [{
     id: "outside--inside",
@@ -229,17 +242,13 @@ registry.registerNavigationSequence({
     camera: {
       kind: "cubic-bezier",
       points: [
-        { id: "outside-camera", role: "stop", stopId: "outside", position: [0, 1.7, 6] },
+        { id: "outside-camera", role: "stop", stopId: "outside", position: [0, 1.7, 6], sourceRef: "src/scene/rail.ts#outside" },
         { id: "outside-out", role: "control-out", position: [1, 1.7, 6], sourceRef: "src/scene/rail.ts#outsideOut" },
         { id: "inside-in", role: "control-in", position: [3, 1.7, 2], sourceRef: "src/scene/rail.ts#insideIn" },
-        { id: "inside-camera", role: "stop", stopId: "inside", position: [4, 1.7, 1] },
+        { id: "inside-camera", role: "stop", stopId: "inside", position: [4, 1.7, 1], sourceRef: "src/scene/rail.ts#inside" },
       ],
     },
     aim: { kind: "path-facing", lookDistance: 6, turnFraction: 0.18 },
   }],
 });
 ```
-
-Use stable IDs and `sourceRef` values for every authored control that should be
-actionable. Set `editable: false` on explanatory points, or publish a `sampled`
-curve when the runtime curve cannot be mapped back to authored controls.

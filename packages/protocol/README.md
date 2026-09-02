@@ -3,7 +3,7 @@
 Versioned, engine-neutral TypeScript contracts and URL normalization for
 Alterno Spatial Review.
 
-## Ownership-first scenes (implementation draft)
+## Ownership-first scenes
 
 The optional `scene-assemblies-v1` capability adds transform-only assemblies,
 explicit actor ownership, and parent-local poses without changing the existing
@@ -11,7 +11,7 @@ world-space `transform` field. `SceneOwnershipOperation` separates assembly
 placement, actor placement, and reparenting intent. Shared designs remain assets.
 `validateSceneOwnership()` validates graph and transform consistency. Read the
 [contract, compatibility, migration, and acceptance gate](../../docs/ownership-first-scene.md)
-before using this unreleased extension.
+before using this capability.
 
 The browser discovery request/response messages let an embedded website
 advertise its normalized discovery document without CORS or an editor backend.
@@ -105,4 +105,4 @@ and the [live-transfer JSON schema](../../schemas/asset-stream-v1.schema.json).
 The package exports the official editor origin and
 `spatialReviewEditorUrl(websiteUrl)` as convenience values. Exporting an origin
 does not itself authorize access; origin authorization is applied by a website
-when it starts an SDK browser bridge.
+when it starts an SDK discovery or capture bridge.
