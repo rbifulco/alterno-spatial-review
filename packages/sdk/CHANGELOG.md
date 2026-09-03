@@ -1,5 +1,27 @@
 # @alterno-dev/spatial-review
 
+## 0.7.0
+
+### Minor Changes
+
+- 5990868: Add advisory editor-origin policy discovery, policy evaluation and validation,
+  and correlated exact-origin rejection for unauthorized live-capture handshakes.
+  Configured editor origins now require exact canonical HTTPS values (HTTP only
+  for loopback). Browser discovery keeps runtime origins private unless a frozen
+  shared authorization explicitly discloses the complete finite set. This release
+  also changes cross-origin loopback from implicitly allowed to denied by default;
+  existing local integrations must set `allowLoopbackPeers: true` to retain the
+  previous behavior.
+
+### Patch Changes
+
+- e1bafb0: Require a full asset representation in each bridge session before revision reuse, and reject reuse when its live texture resources are no longer registered.
+- 0d31dd1: Fall back to safe decoded texture sources when a registered source URL returns
+  a non-image MIME type, while preserving resource byte limits and actionable
+  failures for arbitrary non-image responses.
+- Updated dependencies [5990868]
+  - @alterno-dev/spatial-review-protocol@0.7.0
+
 ## 0.6.0
 
 ### Minor Changes
