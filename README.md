@@ -4,72 +4,174 @@
 [![npm](https://img.shields.io/npm/v/%40alterno-dev%2Fspatial-review?label=npm)](https://www.npmjs.com/package/@alterno-dev/spatial-review)
 [![License: MIT](https://img.shields.io/badge/license-MIT-0b7285.svg)](LICENSE)
 
-**AI agents can realize a wide range of creative ideas, provided authors can
-express their intent in a form the agent can understand and act on.**
+When a 3D site needs another pass, the useful feedback is often simple: “move
+this gate,” “change the material on that wall,” or “hold this view for longer.”
+A coding agent still needs to know which object, asset, camera path, and source
+file you mean.
 
-Spatial work makes this difficult. Authors often need to refer to what they see:
-this object, that material, the proportion between two elements, or the way a
-space feels. The agent, however, works from scene data and code.
+Alterno Spatial Review keeps that context with the comment. Select something in
+the scene, inspect how it was built, and leave feedback at the place where the
+change belongs. Export the review as JSON and give it to the coding agent working
+on the site.
 
-Alterno Spatial Review is an open protocol and TypeScript toolkit that explores
-how to make this exchange more effective and efficient. The author reviews what
-the agent creates and expresses the next intent in context. The agent receives
-that intent connected to the objects, relationships, assets, and code it can
-change.
+The author and coding agent decide what to put under review. They can share one
+object, one asset, a short camera move, a room, or an entire website. The
+protocol carries that chosen material, and the hosted editor presents it in
+scene, experience, and asset views.
 
-[Quick start](#quick-start) ·
-[Hosted editor](https://spatial-review.alterno.dev/) ·
-[How the loop works](#a-controlled-representation-closes-the-loop) ·
-[Presentation rules](#present-scenes-and-assets-so-intent-remains-actionable) ·
+[Open the hosted editor](https://spatial-review.alterno.dev/) to explore an
+example. To add Spatial Review to a Three.js site, give the installation prompt
+below to your coding agent.
+
+[Install with an AI agent](#install-with-an-ai-coding-agent) ·
+[See real projects](#what-you-can-review) ·
+[Install manually](#quick-start) ·
+[How the loop works](#from-review-to-source) ·
 [Packages](#four-packages-implement-one-contract) ·
-[Guides](#choose-the-guide-that-matches-the-task) ·
-[Contributing](#contributing)
+[Guides](#choose-the-guide-that-matches-the-task)
 
-## Author intent needs spatial context
+## Install with an AI coding agent
 
-The author is not an external reviewer. Reviewing is one step in the creative
-loop: the agent produces a result, the author evaluates it, and that evaluation
-becomes the next instruction.
+Paste this into Claude Code, Codex, Cursor, or another repository-aware coding
+agent from the root of the website you want to integrate:
 
-Text alone often loses the context behind the instruction. A screenshot can show
-the problem, but it does not identify the relevant scene structure. An object ID
-can identify the target, but it does not preserve the surrounding relationships
-that explain the author's intent.
+```text
+Add Alterno Spatial Review to this Three.js website. Read and follow the complete
+workflow at https://github.com/rbifulco/alterno-spatial-review/blob/main/agents/install.md.
 
-Stable identity therefore solves only part of the problem. Scene relationships,
-hierarchy, transforms, geometry, materials, and source references preserve the
-context needed to interpret what the author means and where the agent can act.
+Start by inspecting the site and recording the ordinary-page baseline. Before
+installing anything or enabling a bridge, ask me to approve the editor origin
+and the review data it will receive, exactly as the workflow requires. Then:
+- create the integration plan;
+- install the released @alterno-dev/spatial-review package;
+- expose only meaningful review subjects with stable IDs and searchable source refs;
+- include authored camera/navigation sequences when present;
+- connect and verify every applicable editor view;
+- export a sample feedback JSON and prove it maps back to source; and
+- run the existing tests/build plus the workflow's browser and performance checks.
 
-The goal is not merely to attach comments to objects. It is to make spatial
-intent easier for authors to express and easier for agents to interpret.
+Keep the live website authoritative. Report what was exposed, what was excluded,
+the validation evidence, and any remaining limitations.
+```
 
-## A controlled representation closes the loop
+The agent will pause for the required data-access decision before enabling the
+official editor. Installation alone exposes nothing. The bridge only exposes
+the scene roots, descendants, assets, source references, and texture data the
+integration deliberately registers. See [exactly what is shared](#quick-start)
+and the [complete installation workflow](agents/install.md).
 
-The review representation is not the live website and is not an authoring
-surface. An agent exports the representation from authoritative source. The
-editor collects evidence and proposed outcomes. The agent applies approved
-changes to the website source.
+If you prefer to do the integration yourself, jump to the
+[manual quick start](#quick-start).
+
+## What you can review
+
+These are ordinary pages on the left and their structured editor views on the
+right. The editor shows scene hierarchy, reusable assets, authored journeys,
+stable identities, and source references alongside the rendered result.
+
+Each example exports a whole website to show the range of the editor. An
+integration can draw a much smaller boundary. The author and agent choose the
+amount of context needed to give clear feedback for the current task.
+
+### Kage — a scroll-led Kyoto night walk
+
+[Open Kage](https://rbifulco.github.io/kage/) ·
+[Review it](https://spatial-review.alterno.dev/?site=https%3A%2F%2Frbifulco.github.io%2Fkage%2F)
+
+| Live page | Scene review |
+| --- | --- |
+| ![Kage's moonlit temple experience](docs/media/kage-site.jpg) | ![Kage's temple scene, selectable objects, hierarchy, and navigation paths in Spatial Review](docs/media/kage-editor.png) |
+
+The useful bit is not only seeing the temple: a reviewer can select the torii
+gate as a stable object, inspect the whole authored composition, and review the
+camera and aim paths that create the arrival.
+
+**Project history.** The reviewed build is [Rob Bifulco's Spatial Review
+integration](https://github.com/rbifulco/kage) of [Kage, the original project by
+Meng To](https://github.com/MengTo/kage): a deliberately compact, single-page
+Three.js design study combining procedural temple architecture with generated
+scene plates and foreground artwork.
+
+### Sole — a cinematic walk through an Umbrian village
+
+[Open Sole](https://sole-afterlight-orvieto.robbifulco.chatgpt.site/) ·
+[Review it](https://spatial-review.alterno.dev/?site=https%3A%2F%2Fsole-afterlight-orvieto.robbifulco.chatgpt.site%2F)
+
+| Live page | Scene review |
+| --- | --- |
+| ![Sole's sunlit abandoned village experience](docs/media/sole-site.jpg) | ![Sole's architectural scene, objects, and path references in Spatial Review](docs/media/sole-editor.png) |
+
+Sole shows how a continuous cinematic route can remain reviewable as both an
+experience and a constructed world: 29 independently selectable actors, shared
+assets, explicit place ownership, and a nine-stop authored journey.
+
+**Project history.** Sole was the proving ground for Spatial Review. It
+originally housed the cinematic website, two editors, a hosted relay, and the
+reusable protocol code. In August 2026 those responsibilities were split so
+Sole could remain an independent example site while the protocol, SDK,
+validators, and installation guidance became this public MIT-licensed project.
+
+### Claude of Duty — a procedural browser FPS
+
+[Open Claude of Duty](https://rbifulco.github.io/Claude-of-Duty/) ·
+[Review it](https://spatial-review.alterno.dev/?site=https%3A%2F%2Frbifulco.github.io%2FClaude-of-Duty%2F)
+
+![Claude of Duty's procedural market viewed in first person](docs/media/claude-of-duty-site.jpg)
+
+| Building asset and component hierarchy | Prop asset in isolation |
+| --- | --- |
+| ![A Claude of Duty building asset with its component hierarchy and selected balcony in Spatial Review](docs/media/claude-of-duty-building-asset.jpg) | ![A procedural Claude of Duty air-conditioning unit isolated in Spatial Review](docs/media/claude-of-duty-ac-unit-asset.jpg) |
+
+Here the review representation makes a dense procedural level legible. A
+reviewer can move from the market to one of 87 assets, isolate a complete
+building with its 329-part hierarchy, or focus on a two-part prop—all with the
+stable identity and source context an agent needs to act on the feedback.
+
+**Project history.** The reviewed build is [Rob Bifulco's
+fork](https://github.com/rbifulco/Claude-of-Duty) of [Matt Shumer's original
+Claude of Duty](https://github.com/mshumer/Claude-of-Duty). The browser FPS was
+built by a fleet of AI agents against a shared architecture contract: roughly
+55,000 lines across 11 subsystems. Every mesh, texture, animation, and sound is
+generated from code.
+
+## Point to what you mean
+
+When you review a spatial project, you often want to say “move this gate,”
+“change the material on that wall,” or “hold this camera angle for longer.” The
+words depend on what you can see and where it sits in the scene.
+
+Spatial Review carries the chosen context with your feedback. A selected object
+can keep its identity, place in the hierarchy, transform, geometry, materials,
+and source reference. Camera feedback can keep the path, aim, timing, field of
+view, and named stops. The author and agent agree on what the review needs, and
+the agent can then find the relevant code and make the requested change.
+
+This gives authors a direct way to describe changes inside a scene. It also
+reduces the time an agent spends guessing which object or source definition a
+comment refers to.
+
+## From review to source
+
+The author and agent choose which scenes, assets, and journeys to share. The
+editor provides a workspace for that material and records feedback with the
+selected object or moment. The coding agent reads the exported feedback, updates
+the source, and publishes a fresh review.
 
 ```mermaid
 flowchart TD
-    author["Author"] -->|"creative intent"| agent["AI agent"]
-    agent -->|"creates or changes"| site["Spatial experience"]
-    site -->|"structured scene + assets"| review["Review tool"]
-    review -->|"result in context"| author
+    author["Author"] -->|"asks for a change"| agent["AI agent"]
+    agent -->|"updates"| site["Website"]
+    site -->|"shares registered scenes and assets"| review["Review editor"]
+    review -->|"shows the result in context"| author
 ```
 
-1. The author expresses an intent and the agent produces a result.
-2. The website registers the objects that matter for evaluating that result.
-3. It advertises its scenes, assets, and supported capture methods through the
-   discovery and capture bridges. It can publish a discovery document for
-   non-browser tools.
-4. A compatible review tool presents the result with its spatial structure.
-5. The author's evaluation becomes the next instruction, connected to stable
-   identifiers and source references.
-
-This keeps the website authoritative. The review tool does not infer structure
-from rendered pixels, and the agent does not need unrestricted access to the
-application.
+1. The author asks for a change and the agent updates the website.
+2. The website registers the objects and journeys available for review.
+3. The discovery and capture bridges share the registered material with an
+   approved editor. A discovery document can provide the same entry point to
+   tools outside the browser.
+4. The author reviews the scene, experience, or asset and exports feedback.
+5. The agent follows the identifiers and source references back to the code.
 
 | Review scale | What it preserves | Useful for |
 | --- | --- | --- |
@@ -77,18 +179,19 @@ application.
 | **Experience review** | Camera and aim paths, named stops, timing, and FOV | Movement, reveals, framing, and lens intent |
 | **Asset review** | Component hierarchy, geometry, materials, textures, and local transforms | Shared design, construction, and material feedback |
 
-The accepted [ownership-first scene contract](docs/ownership-first-scene.md) adds
-explicit transform-only assemblies while keeping placements, shared designs, and
-classification separate. It includes negotiation and migration requirements.
+The accepted [scene ownership contract](docs/ownership-first-scene.md) adds
+explicit assemblies that carry transforms while keeping placements, shared
+designs, and classification separate. It includes negotiation and migration
+requirements.
 The contract was accepted in [protocol issue #11](https://github.com/rbifulco/alterno-spatial-review/issues/11);
 package version 0.5.0 and later contains the implementation.
 
 > [!IMPORTANT]
-> Spatial Review does not scrape an arbitrary WebGL canvas. The website opts in
-> and exposes only the objects that should participate in review.
+> The website opts in and registers every object available for review. Spatial
+> Review receives the registered objects and their supported descendants.
 
-The protocol is engine-neutral. The current SDK includes a Three.js adapter;
-adapters for other engines are not yet included.
+The protocol works across rendering engines. The current SDK includes a Three.js
+adapter.
 
 ## Quick start
 
