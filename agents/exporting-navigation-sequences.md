@@ -58,6 +58,13 @@ and endpoint identity without resampling. The protocol `kind` identifies the
 curve model. Select the `kind` that matches the authoritative authored model.
 Do not infer the model from the evaluated curve shape.
 
+For an editor-authored replacement, preserve its extended geometry and saved-view
+timing instead of re-inferring the original curve model. Read
+[Navigation authoring](../docs/navigation-authoring.md) for the versioned timing
+map, relative cubic offsets, generated knots, and evaluation rules. Keeping a
+native Bézier source model is fine; the editor's direct-on-curve handles are a
+UI choice, not a requirement to expose tangent arms on the site.
+
 | Runtime intent | Protocol `kind` | Authored points |
 | --- | --- | --- |
 | Straight movement | `line` | Start and end |
@@ -89,6 +96,7 @@ Give each authored point these fields:
 
 - a stable semantic `id`;
 - its actual role;
+- an optional human-readable `name`, without changing its stable ID when renamed;
 - `stopId` when it represents a canonical stop;
 - the closest searchable `sourceRef`; and
 - `editable: false` when it is calculated output.
@@ -139,6 +147,19 @@ Give each stop its camera position, target, and FOV. Set `lensStart` to the
 normalized segment progress from `0` to `1` where interpolation to the
 destination FOV starts.
 Record an unsupported easing function as an approximation.
+
+For routes using saved views, preserve `timingVersion: 1` and the complete
+`timing` array on each track. Camera and aim share saved-view IDs and playback
+times, not necessarily geometry parameters or point counts. `point.time` is a
+geometry parameter; `timing[].time` is the shared clock. Keep names, generated
+knots, and relative cubic offsets in the export. Segment names are optional.
+Do not remove internal knots just because they are hidden from the reviewer.
+
+Legacy site definitions without these fields need no migration to open in the
+editor. A consumer of extended feedback must understand the extension or
+translate it faithfully; an SDK registration update alone cannot alter runtime
+camera playback. Use [Apply navigation feedback](applying-navigation-feedback.md)
+when authorized to implement a proposed camera change in the source site.
 
 **Complete when:** segment weights preserve runtime ratios. Each stop has its
 FOV. Each lens transition has an explicit source mapping or approximation.
@@ -193,6 +214,12 @@ unchanged rebuild preserves the selected IDs. Pass when replacement data
 appears after refresh without retaining the replaced snapshot.
 
 Record each approximation and unsupported feedback field.
+
+For extended routes, verify a saved-view rename and retime survive fresh
+registration and re-import. Compare both camera and aim at the shared time and
+between anchors, not just at stops. Run the complete
+[feedback round-trip checks](applying-navigation-feedback.md#4-verify-the-round-trip)
+when applying feedback to the runtime.
 
 **Complete when:** the representative runtime comparison passes. The supported
 feedback export maps to source. Each triggered rebuild or replacement check has

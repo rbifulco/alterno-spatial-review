@@ -3,6 +3,20 @@
 Versioned, engine-neutral TypeScript contracts and URL normalization for
 Alterno Spatial Review.
 
+## Navigation shape and saved views
+
+`NavigationCurvePoint` supports optional names, geometry parameter `time`,
+relative cubic `incoming`/`outgoing` offsets, hidden `generated` knots, and
+paired `momentId` / `momentName`. `NavigationSegment.name` is also optional.
+`NavigationCurveTiming` maps shared segment playback `time` to independent
+geometry `parameter`; mapped Catmull–Rom curves use `timingVersion: 1`.
+Legacy definitions remain unchanged. Older position-only consumers must not
+silently interpret extended curves as plain Catmull–Rom.
+
+Read the [evaluation and compatibility contract](../../docs/navigation-authoring.md)
+and [source-author feedback procedure](../../agents/applying-navigation-feedback.md).
+Registration is transport, not a site camera evaluator.
+
 ## Ownership-first scenes
 
 The optional `scene-assemblies-v1` capability adds transform-only assemblies,

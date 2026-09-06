@@ -16,7 +16,7 @@
         "reason": { "type": "string" }
       }
     },
-    "navigationSequences": { "type": "array" }
+    "navigationSequences": { "type": "array", "maxItems": 200, "items": { "$ref": "navigation-sequence-v1.schema.json" } }
   },
   "allOf": [
     {

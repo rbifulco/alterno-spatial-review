@@ -256,6 +256,13 @@ fallback, and security limits.
 
 ## Register camera journeys
 
+Registration and catalog snapshots preserve optional handle/transition names,
+internal geometry data, and version 1 saved-view timing maps. They do not apply
+feedback or change the site's camera controller. Extended routes require a
+consumer that implements the [navigation authoring contract](../../docs/navigation-authoring.md).
+Use [Apply navigation feedback](../../agents/applying-navigation-feedback.md)
+when updating authoritative site motion, then register the new snapshot.
+
 Use [Export navigation sequences](../../agents/exporting-navigation-sequences.md)
 as the source of truth for identity, source mapping, editability, and curve
 selection. The example below shows the SDK field shape.

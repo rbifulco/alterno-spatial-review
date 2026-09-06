@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Navigation sequence with independent shape and saved-view timing",
+  "$comment": "The runtime validator additionally checks unique IDs, stop references, strictly increasing geometry/timing parameters, matching momentId points, and paired camera/aim IDs, times, and names.",
+  "type": "object",
+  "required": ["id", "name", "stops", "segments"],
+  "properties": {
+    "id": { "$ref": "#/$defs/name" },
+    "name": { "$ref": "#/$defs/name" },
+    "sourceRef": { "type": "string" },
+    "category": { "type": "string" },
+    "stops": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/stop" } },
+    "segments": { "type": "array", "items": { "$ref": "#/$defs/segment" } }
+  },
+  "$defs": {
+    "name": { "type": "string", "minLength": 1, "pattern": "\\S" },
+    "vec3": { "type": "array", "minItems": 3, "maxItems": 3, "items": { "type": "number" } },
+    "parameter": { "type": "number", "minimum": 0, "maximum": 1 },
+    "interior": { "type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1 },
+    "point": {
+      "type": "object", "required": ["id", "position", "role"],
+      "properties": {
+        "id": { "$ref": "#/$defs/name" }, "name": { "$ref": "#/$defs/name" },
+        "position": { "$ref": "#/$defs/vec3" },
+        "role": { "enum": ["stop", "through", "control", "control-in", "control-out"] },
+        "stopId": { "$ref": "#/$defs/name" }, "sourceRef": { "type": "string" },
+        "editable": { "type": "boolean" }, "generated": { "type": "boolean" },
+        "time": { "$ref": "#/$defs/parameter", "description": "Geometry parameter, not mapped playback time." },
+        "incoming": { "$ref": "#/$defs/vec3" }, "outgoing": { "$ref": "#/$defs/vec3" },
+        "momentId": { "$ref": "#/$defs/name" }, "momentName": { "$ref": "#/$defs/name" }
+      },
+      "dependentRequired": { "momentName": ["momentId"] },
+      "allOf": [{ "if": { "required": ["momentId"] }, "then": {
+        "properties": { "role": { "const": "through" }, "generated": { "const": false } },
+        "not": { "required": ["stopId"] }
+      } }]
+    },
+    "legacyPoint": {
+      "allOf": [{ "$ref": "#/$defs/point" }, { "not": { "anyOf": [
+        { "required": ["time"] }, { "required": ["incoming"] }, { "required": ["outgoing"] },
+        { "required": ["generated"] }, { "required": ["momentId"] }
+      ] } }]
+    },
+    "anchor": {
+      "type": "object", "required": ["id", "time", "parameter"],
+      "properties": {
+        "id": { "$ref": "#/$defs/name" },
+        "time": { "$ref": "#/$defs/interior" }, "parameter": { "$ref": "#/$defs/interior" }
+      }
+    },
+    "curve": {
+      "type": "object", "required": ["kind"],
+      "oneOf": [
+        { "required": ["points"], "properties": { "kind": { "enum": ["line", "quadratic-bezier", "cubic-bezier"] },
+          "points": { "type": "array", "items": { "$ref": "#/$defs/legacyPoint" } }
+        }, "not": { "anyOf": [{ "required": ["timing"] }, { "required": ["timingVersion"] }] },
+          "allOf": [
+            { "if": { "properties": { "kind": { "const": "line" } } }, "then": { "properties": { "points": { "minItems": 2, "maxItems": 2 } } } },
+            { "if": { "properties": { "kind": { "const": "quadratic-bezier" } } }, "then": { "properties": { "points": { "minItems": 3, "maxItems": 3 } } } },
+            { "if": { "properties": { "kind": { "const": "cubic-bezier" } } }, "then": { "properties": { "points": { "minItems": 4, "maxItems": 4 } } } }
+          ]
+        },
+        { "required": ["points"], "properties": {
+          "kind": { "const": "catmull-rom" },
+          "points": { "type": "array", "minItems": 2, "items": { "$ref": "#/$defs/point" } },
+          "closed": { "type": "boolean" }, "curveType": { "enum": ["centripetal", "chordal", "catmullrom"] },
+          "tension": { "type": "number" }, "timingVersion": { "const": 1 },
+          "timing": { "type": "array", "items": { "$ref": "#/$defs/anchor" } }
+        }, "dependentRequired": { "timingVersion": ["timing"], "timing": ["timingVersion"] } },
+        { "required": ["samples"], "properties": {
+          "kind": { "const": "sampled" }, "samples": { "type": "array", "minItems": 2, "items": { "$ref": "#/$defs/vec3" } }
+        }, "not": { "anyOf": [{ "required": ["timing"] }, { "required": ["timingVersion"] }] } }
+      ]
+    },
+    "stop": {
+      "type": "object", "required": ["id", "name", "camera", "target", "fov"],
+      "properties": {
+        "id": { "$ref": "#/$defs/name" }, "name": { "$ref": "#/$defs/name" },
+        "camera": { "$ref": "#/$defs/vec3" }, "target": { "$ref": "#/$defs/vec3" },
+        "fov": { "type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 180 }, "sourceRef": { "type": "string" }
+      }
+    },
+    "segment": {
+      "type": "object", "required": ["id", "fromStopId", "toStopId", "camera", "aim", "weight"],
+      "properties": {
+        "id": { "$ref": "#/$defs/name" }, "name": { "$ref": "#/$defs/name" },
+        "fromStopId": { "$ref": "#/$defs/name" }, "toStopId": { "$ref": "#/$defs/name" },
+        "sourceRef": { "type": "string" }, "weight": { "type": "number", "exclusiveMinimum": 0 },
+        "lensStart": { "$ref": "#/$defs/parameter" }, "camera": { "$ref": "#/$defs/curve" },
+        "aim": { "type": "object", "required": ["kind"], "oneOf": [
+          { "required": ["curve"], "properties": { "kind": { "const": "curve" }, "curve": { "$ref": "#/$defs/curve" } } },
+          { "required": ["target"], "properties": { "kind": { "const": "fixed-target" }, "target": { "$ref": "#/$defs/vec3" } } },
+          { "required": ["lookDistance"], "properties": { "kind": { "const": "path-facing" }, "lookDistance": { "type": "number", "exclusiveMinimum": 0 },
+            "maximumPitchRatio": { "type": "number", "minimum": 0 }, "turnFraction": { "type": "number", "minimum": 0, "maximum": 0.5 } } }
+        ] }
+      }
+    }
+  }
+}
