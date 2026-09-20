@@ -1,5 +1,10 @@
 # Install or update Spatial Review on an existing website
 
+For navigation integrations, include the aggregate export count and
+[live catalog budget acceptance](../docs/live-catalog-budgets.md) in the
+integration plan and final editor check. An SDK upgrade or authorized bridge
+does not guarantee that a large catalog will be accepted.
+
 Use this procedure for a new integration or an update of an existing
 integration. Complete the steps in order. Record evidence for each completion
 condition.

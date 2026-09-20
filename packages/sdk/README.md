@@ -256,6 +256,12 @@ fallback, and security limits.
 
 ## Register camera journeys
 
+Budget the complete export, not each curve separately. The current editor allows
+50,000 camera/aim points across journeys and baselines. Registration does not
+automatically downsample data; progressive geometry does not reduce navigation
+payloads. Follow [live catalog budgets](../../docs/live-catalog-budgets.md) for
+bounded sampling, timing preservation and acceptance tests.
+
 Registration and catalog snapshots preserve optional handle/transition names,
 internal geometry data, and version 1 saved-view timing maps. They do not apply
 feedback or change the site's camera controller. Extended routes require a

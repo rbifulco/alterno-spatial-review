@@ -5,6 +5,12 @@ Alterno Spatial Review.
 
 ## Navigation shape and saved views
 
+Schema validity does not guarantee receiver acceptance. The current editor caps
+each catalog at 50,000 total camera/aim points and an estimated 64 MiB payload,
+with additional resource limits. Matching invalid catalogs should produce an
+immediate actionable diagnostic, not a timeout. See
+[live catalog budgets](../../docs/live-catalog-budgets.md).
+
 `NavigationCurvePoint` supports optional names, geometry parameter `time`,
 relative cubic `incoming`/`outgoing` offsets, hidden `generated` knots, and
 paired `momentId` / `momentName`. `NavigationSegment.name` is also optional.

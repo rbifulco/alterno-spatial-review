@@ -1,5 +1,10 @@
 # Export navigation sequences
 
+Before export, apply [live catalog budgets](../docs/live-catalog-budgets.md).
+Count camera and aim points across the complete catalog, including baselines
+and representative transfers. Verify sampling fidelity and actual editor
+acceptance; protocol-valid registration alone is not sufficient.
+
 Use this procedure when a website has an authored camera route, scroll route,
 guided view, or comparable spatial journey. Apply the procedure to every
 journey selected for Experience review.
