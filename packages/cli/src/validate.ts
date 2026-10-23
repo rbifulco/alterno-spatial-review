@@ -2,9 +2,13 @@ import {
   discoveryUrlsForWebsite,
   normalizeWebsiteUrl,
   spatialReviewEditorUrl,
+  decodePreparedReviewCatalog,
+  normalizePreparedReviewManifest,
+  preparedReviewSha256,
+  PREPARED_REVIEW_LIMITS,
   type SpatialReviewDiscovery,
 } from "@alterno-dev/spatial-review-protocol";
-import { validateAssetDocument, validateDiscovery, validateSceneDocument } from "@alterno-dev/spatial-review-validator";
+import { validateAssetDocument, validateDiscovery, validateSceneDocument, validateReviewIndex } from "@alterno-dev/spatial-review-validator";
 
 const DISCOVERY_LIMIT_BYTES = 64 * 1024;
 const DOCUMENT_LIMIT_BYTES = 24 * 1024 * 1024;
@@ -157,19 +161,66 @@ async function fetchDocument(url: string, label: string, fetcher: typeof fetch, 
   return readLimitedJson(response, DOCUMENT_LIMIT_BYTES, label);
 }
 
+async function fetchPreparedBytes(descriptor: { url: string; byteLength: number; sha256?: string }, fetcher: typeof fetch, trustedOrigins: ReadonlySet<string>) {
+  const { response } = await fetchWithRedirectPolicy(descriptor.url, fetcher, trustedOrigins, "Prepared review package");
+  if (!response.ok) throw new Error(`Prepared review package returned ${response.status}.`);
+  const declared = Number(response.headers.get("content-length"));
+  const encoding = response.headers.get("content-encoding")?.trim().toLowerCase();
+  if ((!encoding || encoding === "identity") && Number.isFinite(declared) && declared > descriptor.byteLength) throw new Error("Prepared review file exceeds its declared byte budget.");
+  const chunks: Uint8Array[] = []; let length = 0;
+  if (response.body) {
+    const reader = response.body.getReader();
+    while (true) {
+      const result = await reader.read();
+      if (result.done) break;
+      length += result.value.byteLength;
+      if (length > descriptor.byteLength) { await reader.cancel(); throw new Error("Prepared review file exceeds its declared byte budget."); }
+      chunks.push(result.value);
+    }
+  } else { const bytes = new Uint8Array(await response.arrayBuffer()); chunks.push(bytes); length = bytes.byteLength; }
+  if (length > descriptor.byteLength || (descriptor.sha256 && length !== descriptor.byteLength)) throw new Error("Prepared review file length does not match its manifest.");
+  const bytes = new Uint8Array(length); let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+  if (descriptor.sha256 && await preparedReviewSha256(bytes) !== descriptor.sha256) throw new Error("Prepared review file SHA-256 does not match its manifest.");
+  return bytes.buffer;
+}
+
+async function validatePreparedTransport(manifestUrl: string, websiteUrl: string, fetcher: typeof fetch, trustedOrigins: ReadonlySet<string>) {
+  const bytes = await fetchPreparedBytes({ url: manifestUrl, byteLength: PREPARED_REVIEW_LIMITS.manifestBytes }, fetcher, trustedOrigins);
+  const manifest = normalizePreparedReviewManifest(JSON.parse(new TextDecoder().decode(bytes)), manifestUrl);
+  if (manifest.source.websiteUrl !== websiteUrl) throw new Error("The prepared package belongs to a different source website.");
+  const catalogBytes = await fetchPreparedBytes(manifest.catalog, fetcher, trustedOrigins);
+  const buffers = new Map<string, ArrayBuffer>();
+  for (const resource of manifest.resources) {
+    const resourceBytes = await fetchPreparedBytes(resource, fetcher, trustedOrigins);
+    if (resource.kind === "buffer") buffers.set(resource.id, resourceBytes);
+  }
+  const decoded = decodePreparedReviewCatalog(JSON.parse(new TextDecoder().decode(catalogBytes)), manifest, buffers);
+  const result = validateReviewIndex(decoded.index);
+  if (!result.ok) throw new Error(result.errors.join("\n"));
+  if (result.value.assetCatalog.assets.some((asset) => !asset.nodes.length)) throw new Error("The prepared package contains pending detailed geometry.");
+  for (const asset of result.value.assetCatalog.assets) for (const material of asset.materials) for (const map of material.maps ?? []) {
+    if (!map.resourceId || !decoded.textures[map.resourceId]) throw new Error("A prepared texture is missing its captured resource.");
+  }
+  return manifest;
+}
+
 export async function validateWebsite(websiteUrl: string, options: ValidateWebsiteOptions = {}) {
   const fetcher = options.fetch ?? fetch;
   const resolved = await resolveWebsiteDiscovery(websiteUrl, { ...options, fetch: fetcher });
   const { discovery } = resolved;
   const trustedOrigins = new Set([new URL(resolved.discoveryUrl).origin]);
   for (const origin of options.allowedDocumentOrigins ?? []) trustedOrigins.add(normalizedOrigin(origin, "Allowed document origin"));
+  const prepared = discovery.capabilities?.preparedPackage
+    ? await validatePreparedTransport(discovery.capabilities.preparedPackage.manifest, discovery.websiteUrl, fetcher, trustedOrigins)
+    : undefined;
   let sceneAssetIds: string[] | undefined;
-  if (discovery.scene) {
+  if (!prepared && discovery.scene) {
     const scene = validateSceneDocument(await fetchDocument(discovery.scene, "Scene document", fetcher, trustedOrigins));
     if (!scene.ok) throw new Error(scene.errors.join("\n"));
     sceneAssetIds = scene.value.actors.map((actor) => actor.assetId);
   }
-  if (discovery.assets) {
+  if (!prepared && discovery.assets) {
     const assets = validateAssetDocument(await fetchDocument(discovery.assets, "Asset document", fetcher, trustedOrigins));
     if (!assets.ok) throw new Error(assets.errors.join("\n"));
     if (sceneAssetIds) {
@@ -186,6 +237,7 @@ export async function validateWebsite(websiteUrl: string, options: ValidateWebsi
     `Scene: ${discovery.scene ? "yes" : "no"}`,
     `Assets: ${discovery.assets ? "yes" : "no"}`,
     `Live: ${discovery.liveCapture ? "yes" : "no"}`,
+    `Prepared: ${prepared ? `${prepared.captureId} (build ${prepared.buildId}, source revision ${prepared.source.revision})` : "no"}`,
     `Live editor policy: ${discovery.capabilities?.liveCapture?.editorOriginPolicy?.mode ?? "unspecified"}`,
     `Open review: ${spatialReviewEditorUrl(discovery.websiteUrl, { discoveryUrl: resolved.discoveryUrl })}`,
     "",

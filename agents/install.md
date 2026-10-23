@@ -1,5 +1,10 @@
 # Install or update Spatial Review on an existing website
 
+For navigation integrations, include the aggregate export count and
+[live catalog budget acceptance](../docs/live-catalog-budgets.md) in the
+integration plan and final editor check. An SDK upgrade or authorized bridge
+does not guarantee that a large catalog will be accepted.
+
 Use this procedure for a new integration or an update of an existing
 integration. Complete the steps in order. Record evidence for each completion
 condition.
@@ -108,6 +113,7 @@ Use each reference for its named subject:
 | --- | --- | --- |
 | Review boundaries, identity, source mapping, and materials | [Structure a website for review](structuring-for-review.md) | You select or change exported content. |
 | Camera, scroll, or guided routes | [Export navigation sequences](exporting-navigation-sequences.md) | The integration plan includes an authored journey. |
+| Applying Experience feedback | [Apply navigation feedback](applying-navigation-feedback.md) | The user authorizes applying a reviewed camera/path change to site source. |
 | Bridge API, discovery, framing, and texture transport | [Integrate a website](../docs/integrating-a-website.md) | You implement or deploy transport. |
 | Deferred representation behavior | [Deferred asset streaming](../docs/deferred-asset-streaming.md) | Geometry is expensive to construct, serialize, or transfer under the defined trigger. |
 | Ordinary-page performance screen | [Spatial Review performance screen](../docs/performance-profile.md) | Integration code runs on the ordinary page or changes shared rendering, state, routing, input, or lifecycle code. |

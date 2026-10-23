@@ -3,22 +3,60 @@
   "$id": "https://schemas.alterno.dev/spatial-review/discovery/v1",
   "title": "Alterno Spatial Review discovery",
   "type": "object",
-  "required": ["schema", "version", "name"],
+  "required": [
+    "schema",
+    "version",
+    "name"
+  ],
   "properties": {
-    "schema": { "const": "spatial-review-discovery/v1" },
-    "version": { "const": 1 },
-    "name": { "type": "string", "minLength": 1 },
-    "websiteUrl": { "type": "string" },
-    "scene": { "type": "string" },
-    "assets": { "type": "string" },
-    "liveCapture": { "type": "string" },
+    "schema": {
+      "const": "spatial-review-discovery/v1"
+    },
+    "version": {
+      "const": 1
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "websiteUrl": {
+      "type": "string"
+    },
+    "scene": {
+      "type": "string"
+    },
+    "assets": {
+      "type": "string"
+    },
+    "liveCapture": {
+      "type": "string"
+    },
     "capabilities": {
       "type": "object",
       "properties": {
         "liveCapture": {
           "type": "object",
           "properties": {
-            "editorOriginPolicy": { "$ref": "#/$defs/editorOriginPolicy" }
+            "editorOriginPolicy": {
+              "$ref": "#/$defs/editorOriginPolicy"
+            }
+          },
+          "additionalProperties": true
+        },
+        "preparedPackage": {
+          "type": "object",
+          "required": [
+            "capability",
+            "manifest"
+          ],
+          "properties": {
+            "capability": {
+              "const": "prepared-review-package-v1"
+            },
+            "manifest": {
+              "type": "string",
+              "minLength": 1
+            }
           },
           "additionalProperties": true
         }
@@ -26,21 +64,61 @@
       "additionalProperties": true
     }
   },
-  "anyOf": [{ "required": ["scene"] }, { "required": ["assets"] }, { "required": ["liveCapture"] }],
+  "anyOf": [
+    {
+      "required": [
+        "scene"
+      ]
+    },
+    {
+      "required": [
+        "assets"
+      ]
+    },
+    {
+      "required": [
+        "liveCapture"
+      ]
+    },
+    {
+      "required": [
+        "capabilities"
+      ],
+      "properties": {
+        "capabilities": {
+          "required": [
+            "preparedPackage"
+          ]
+        }
+      }
+    }
+  ],
   "allOf": [
     {
       "if": {
-        "required": ["capabilities"],
+        "required": [
+          "capabilities"
+        ],
         "properties": {
           "capabilities": {
-            "required": ["liveCapture"],
+            "required": [
+              "liveCapture"
+            ],
             "properties": {
-              "liveCapture": { "required": ["editorOriginPolicy"] }
+              "liveCapture": {
+                "required": [
+                  "editorOriginPolicy"
+                ]
+              }
             }
           }
         }
       },
-      "then": { "required": ["liveCapture"] }
+      "then": {
+        "required": [
+          "liveCapture"
+        ]
+      }
     }
   ],
   "$defs": {
@@ -48,9 +126,14 @@
       "oneOf": [
         {
           "type": "object",
-          "required": ["mode", "origins"],
+          "required": [
+            "mode",
+            "origins"
+          ],
           "properties": {
-            "mode": { "const": "allowlist" },
+            "mode": {
+              "const": "allowlist"
+            },
             "origins": {
               "type": "array",
               "minItems": 1,
@@ -61,18 +144,33 @@
                 "pattern": "^(?:https://[^/?#@*]+|http://(?:localhost|127\\.0\\.0\\.1|\\[::1\\])(?::[0-9]+)?)$"
               }
             },
-            "allowLoopbackPeers": { "type": "boolean" }
+            "allowLoopbackPeers": {
+              "type": "boolean"
+            }
           },
           "additionalProperties": true
         },
         {
           "type": "object",
-          "required": ["mode"],
+          "required": [
+            "mode"
+          ],
           "properties": {
-            "mode": { "enum": ["same-origin", "any"] },
-            "allowLoopbackPeers": { "type": "boolean" }
+            "mode": {
+              "enum": [
+                "same-origin",
+                "any"
+              ]
+            },
+            "allowLoopbackPeers": {
+              "type": "boolean"
+            }
           },
-          "not": { "required": ["origins"] },
+          "not": {
+            "required": [
+              "origins"
+            ]
+          },
           "additionalProperties": true
         }
       ],

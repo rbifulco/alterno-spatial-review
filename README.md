@@ -16,6 +16,11 @@ agent working on the site.
 The author and agent choose the scope together. A review can contain one object,
 one camera move, a room, or an entire website.
 
+For sites with expensive runtime generation, [prepare a review package](docs/prepared-review-packages.md)
+from the canonical registry before sharing the editor URL. The package preserves
+source identity, hierarchy, navigation and explicit capture fidelity while
+letting all three workspaces load without running the source website again.
+
 **[Open the editor](https://spatial-review.alterno.dev/)** ·
 **[Install with an AI agent](#-install-with-an-ai-agent)** ·
 **[Install manually](docs/installation.md)** ·
@@ -156,6 +161,8 @@ The packages share a version because they implement the same protocol.
 | Install or update with an agent | [Agent workflow](agents/install.md) |
 | Choose review boundaries and source mappings | [Structure for review](agents/structuring-for-review.md) |
 | Export camera and scroll routes | [Navigation sequences](agents/exporting-navigation-sequences.md) |
+| Preserve path shape and synchronized views | [Navigation authoring contract](docs/navigation-authoring.md) |
+| Apply Experience feedback to a site | [Navigation feedback workflow](agents/applying-navigation-feedback.md) |
 | Develop against a local checkout | [Install from source](docs/install-from-source.md) |
 | Configure discovery, capture, and origins | [Website integration](docs/integrating-a-website.md) |
 | Stream expensive geometry | [Deferred asset streaming](docs/deferred-asset-streaming.md) |

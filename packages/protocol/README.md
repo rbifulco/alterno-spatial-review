@@ -3,6 +3,42 @@
 Versioned, engine-neutral TypeScript contracts and URL normalization for
 Alterno Spatial Review.
 
+## Prepared capture transport
+
+The additive `prepared-review-package-v1` capability advertises a manifest URL
+at `capabilities.preparedPackage`. A discovery document may advertise only this
+transport, or retain legacy transports for older consumers. New consumers
+prefer the package and report package failures explicitly.
+
+`normalizePreparedReviewManifest`, `encodePreparedReviewPackage`, and
+`decodePreparedReviewCatalog` define a versioned, content-addressed capture with
+explicit source/build/capture identity and fidelity. Numeric data uses shared,
+aligned little-endian chunks rather than JSON arrays or one file per attribute.
+The codec does not upgrade source fidelity or replace canonical index validation.
+
+See [the complete contract and publishing workflow](../../docs/prepared-review-packages.md)
+and the prepared manifest/catalog schemas in `schemas/`.
+
+## Navigation shape and saved views
+
+Schema validity does not guarantee receiver acceptance. The current editor caps
+each catalog at 50,000 total camera/aim points and an estimated 64 MiB payload,
+with additional resource limits. Matching invalid catalogs should produce an
+immediate actionable diagnostic, not a timeout. See
+[live catalog budgets](../../docs/live-catalog-budgets.md).
+
+`NavigationCurvePoint` supports optional names, geometry parameter `time`,
+relative cubic `incoming`/`outgoing` offsets, hidden `generated` knots, and
+paired `momentId` / `momentName`. `NavigationSegment.name` is also optional.
+`NavigationCurveTiming` maps shared segment playback `time` to independent
+geometry `parameter`; mapped Catmull–Rom curves use `timingVersion: 1`.
+Legacy definitions remain unchanged. Older position-only consumers must not
+silently interpret extended curves as plain Catmull–Rom.
+
+Read the [evaluation and compatibility contract](../../docs/navigation-authoring.md)
+and [source-author feedback procedure](../../agents/applying-navigation-feedback.md).
+Registration is transport, not a site camera evaluator.
+
 ## Ownership-first scenes
 
 The optional `scene-assemblies-v1` capability adds transform-only assemblies,

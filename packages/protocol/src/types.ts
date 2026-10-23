@@ -17,7 +17,9 @@ import type {
   SPATIAL_REVIEW_ASSET_PROGRESS,
   SPATIAL_REVIEW_ASSET_STREAM_CAPABILITY,
   SPATIAL_REVIEW_SOURCE_STATUS,
+  SPATIAL_REVIEW_PREPARED_PACKAGE_CAPABILITY,
 } from "./constants.js";
+import type { PreparedReviewManifest } from "./prepared-package.js";
 
 export type Vec2 = [number, number];
 export type Vec3 = [number, number, number];
@@ -125,6 +127,8 @@ export type SceneOwnershipOperation = {
 export type NavigationCurvePointRole = "stop" | "through" | "control" | "control-in" | "control-out";
 export type NavigationCurvePoint = {
   id: string;
+  /** Display label; renaming never changes id or sourceRef. */
+  name?: string;
   position: Vec3;
   role: NavigationCurvePointRole;
   /** Connects an endpoint to the canonical navigation stop it represents. */
@@ -133,7 +137,22 @@ export type NavigationCurvePoint = {
   sourceRef?: string;
   /** False when the point is explanatory output rather than authored input. */
   editable?: boolean;
+  /** Internal shape-preservation knot, hidden from authored-handle controls. */
+  generated?: boolean;
+  /** Stable saved-view identity shared by one camera and one aim point. */
+  momentId?: string;
+  /** Optional saved-view display label, distinct from the shape handle name. */
+  momentName?: string;
+  /** Geometry parameter, NOT playback time when a timing map is present. */
+  time?: number;
+  /** Relative cubic offsets; internal interpolation data, not UI handles. */
+  incoming?: Vec3;
+  outgoing?: Vec3;
 };
+
+/** Version 1 map from normalized segment playback time to curve parameter.
+ * Endpoints (0,0) and (1,1) are implicit. Both axes are strictly increasing. */
+export type NavigationCurveTiming = { id: string; time: number; parameter: number };
 
 /** Engine-neutral curve definitions. `sampled` is the read-only escape hatch
  * for custom runtime curves that cannot be represented by the authored forms. */
@@ -141,7 +160,7 @@ export type NavigationCurve3 =
   | { kind: "line"; points: [NavigationCurvePoint, NavigationCurvePoint] }
   | { kind: "quadratic-bezier"; points: [NavigationCurvePoint, NavigationCurvePoint, NavigationCurvePoint] }
   | { kind: "cubic-bezier"; points: [NavigationCurvePoint, NavigationCurvePoint, NavigationCurvePoint, NavigationCurvePoint] }
-  | { kind: "catmull-rom"; points: NavigationCurvePoint[]; closed?: boolean; curveType?: "centripetal" | "chordal" | "catmullrom"; tension?: number }
+  | { kind: "catmull-rom"; points: NavigationCurvePoint[]; timingVersion?: 1; timing?: NavigationCurveTiming[]; closed?: boolean; curveType?: "centripetal" | "chordal" | "catmullrom"; tension?: number }
   | { kind: "sampled"; samples: Vec3[] };
 
 export type NavigationAim =
@@ -160,6 +179,8 @@ export type NavigationStop = {
 
 export type NavigationSegment = {
   id: string;
+  /** Optional display label; defaults to the connected stop names. */
+  name?: string;
   fromStopId: string;
   toStopId: string;
   camera: NavigationCurve3;
@@ -196,9 +217,11 @@ export type SpatialReviewEditorOriginPolicy =
   | { mode: "any"; origins?: never; /** Allows different ports only when both peers are loopback. */ allowLoopbackPeers?: boolean };
 export type SpatialReviewDiscoveryCapabilities = {
   liveCapture?: { editorOriginPolicy?: SpatialReviewEditorOriginPolicy };
+  /** Preferred immutable capture; liveCapture remains available to older consumers. */
+  preparedPackage?: { capability: typeof SPATIAL_REVIEW_PREPARED_PACKAGE_CAPABILITY; manifest: string };
 };
 export type SpatialReviewDiscovery = { schema: typeof SPATIAL_REVIEW_DISCOVERY_SCHEMA; version: 1; name: string; websiteUrl: string; scene?: string; assets?: string; liveCapture?: string; capabilities?: SpatialReviewDiscoveryCapabilities };
-export type SpatialReviewBundle = { schema: typeof SPATIAL_REVIEW_BUNDLE_SCHEMA; websiteUrl: string; discoveryUrl: string; discovery: SpatialReviewDiscovery; scene?: unknown; assets?: unknown };
+export type SpatialReviewBundle = { schema: typeof SPATIAL_REVIEW_BUNDLE_SCHEMA; websiteUrl: string; discoveryUrl: string; discovery: SpatialReviewDiscovery; scene?: unknown; assets?: unknown; prepared?: { manifestUrl: string; manifest: PreparedReviewManifest } };
 
 export type SpatialReviewDiscoveryRequestMessage = {
   type: typeof SPATIAL_REVIEW_DISCOVERY_REQUEST;

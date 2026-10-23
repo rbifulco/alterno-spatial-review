@@ -3,6 +3,28 @@
 Register semantic Three.js roots and expose them to compatible review tools.
 The editor receives only explicitly registered objects.
 
+## Prepared packages
+
+`exportPreparedReviewPackage(registry, options)` exports the same canonical
+registry used by live capture into a small manifest, metadata catalog,
+deduplicated aligned numeric chunks and captured texture files. It requests
+complete detailed representations and rejects missing resources or changing
+source revisions. Options require `websiteUrl`, `sourceRevision`, and explicit
+`fidelity` for geometry/materials with limitations; optional capture identity,
+timestamp, cancellation and progress callbacks are supported.
+
+The result is `{ manifest, files, stats }`. Each file has `path`, `contentType`
+and `bytes: Uint8Array`. Write these files through your build/capture harness,
+publish them beside the matching source revision, advertise
+`capabilities.preparedPackage`, validate, then share the ordinary editor URL.
+Browser-dependent source generation can export from its settled existing
+registry; it does not need a second scene or a rewritten serializer.
+
+See [the workflow and binary contract](../../docs/prepared-review-packages.md).
+Source runtime startup and export work happen before sharing and must be
+measured separately from editor first opening. Capture adapter limitations,
+including custom shader approximations, remain explicit.
+
 ## Scene ownership
 
 Use `registerAssembly()` for explicit transform-only place/room owners and
@@ -255,6 +277,19 @@ registration example, wire order, status lifecycle, cache identity, migration
 fallback, and security limits.
 
 ## Register camera journeys
+
+Budget the complete export, not each curve separately. The current editor allows
+50,000 camera/aim points across journeys and baselines. Registration does not
+automatically downsample data; progressive geometry does not reduce navigation
+payloads. Follow [live catalog budgets](../../docs/live-catalog-budgets.md) for
+bounded sampling, timing preservation and acceptance tests.
+
+Registration and catalog snapshots preserve optional handle/transition names,
+internal geometry data, and version 1 saved-view timing maps. They do not apply
+feedback or change the site's camera controller. Extended routes require a
+consumer that implements the [navigation authoring contract](../../docs/navigation-authoring.md).
+Use [Apply navigation feedback](../../agents/applying-navigation-feedback.md)
+when updating authoritative site motion, then register the new snapshot.
 
 Use [Export navigation sequences](../../agents/exporting-navigation-sequences.md)
 as the source of truth for identity, source mapping, editability, and curve

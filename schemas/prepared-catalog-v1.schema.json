@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.alterno.dev/spatial-review/prepared-catalog/v1",
+  "title": "Prepared canonical Spatial Review catalog",
+  "type": "object",
+  "required": [
+    "schema",
+    "buildId",
+    "captureId",
+    "index",
+    "textures"
+  ],
+  "properties": {
+    "schema": {
+      "const": "prepared-review-catalog/v1"
+    },
+    "buildId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "captureId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "textures": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^texture:sha256:[a-f0-9]{64}$"
+      }
+    },
+    "index": {
+      "type": "object",
+      "required": [
+        "schema",
+        "buildId",
+        "generatedAt",
+        "scene",
+        "assetCatalog"
+      ],
+      "properties": {
+        "schema": {
+          "const": "spatial-review-index/v1"
+        },
+        "buildId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "generatedAt": {
+          "type": "string"
+        },
+        "scene": {
+          "type": "object"
+        },
+        "assetCatalog": {
+          "type": "object"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "buffer": {
+      "type": "object",
+      "required": [
+        "$spatialReviewBuffer",
+        "componentType",
+        "length",
+        "byteOffset"
+      ],
+      "properties": {
+        "$spatialReviewBuffer": {
+          "type": "string",
+          "pattern": "^buffer:sha256:[a-f0-9]{64}$"
+        },
+        "componentType": {
+          "enum": [
+            "f32",
+            "u32",
+            "u16",
+            "u8"
+          ]
+        },
+        "length": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "byteOffset": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$comment": "The canonical index retains its original IDs, source references, scene ownership, materials and navigation. Numeric geometry and instance arrays use buffer references in place of arrays. Decode and validate the canonical index before allocation. Build, capture identity and generatedAt must match the manifest.",
+  "additionalProperties": true
+}

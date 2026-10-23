@@ -182,6 +182,95 @@ export function validateAssetInstanceData(value: unknown, maxBytes = 64 * 1024 *
   return errors.length ? { ok: false, errors } : { ok: true, value: value as AssetInstanceData };
 }
 
+function normalizedParameter(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1;
+}
+
+function optionalNavigationName(value: unknown, label: string, errors: string[]) {
+  if (value !== undefined && (typeof value !== "string" || !value.trim())) errors.push(`${label} must be a non-empty string when present.`);
+}
+
+function validateNavigationTiming(curve: Record<string, unknown>, label: string, errors: string[]) {
+  const points = Array.isArray(curve.points) ? curve.points : [];
+  const explicit = points.some(point => object(point) && point.time !== undefined);
+  const moments = new Map<string, { point: Record<string, unknown>; index: number }>();
+  points.forEach((point, index) => {
+    if (!object(point)) return;
+    const pointLabel = `${label}.points[${index}]`;
+    optionalNavigationName(point.name, `${pointLabel}.name`, errors);
+    optionalNavigationName(point.momentId, `${pointLabel}.momentId`, errors);
+    optionalNavigationName(point.momentName, `${pointLabel}.momentName`, errors);
+    if (point.generated !== undefined && typeof point.generated !== "boolean") errors.push(`${pointLabel}.generated must be boolean.`);
+    if (point.editable !== undefined && typeof point.editable !== "boolean") errors.push(`${pointLabel}.editable must be boolean.`);
+    for (const field of ["incoming", "outgoing"] as const) if (point[field] !== undefined && !finiteVec3(point[field])) errors.push(`${pointLabel}.${field} must be a finite XYZ offset.`);
+    if (point.momentName !== undefined && point.momentId === undefined) errors.push(`${pointLabel}.momentName requires momentId.`);
+    if (typeof point.momentId === "string") {
+      if (moments.has(point.momentId)) errors.push(`${label} contains duplicate momentId "${point.momentId}".`);
+      moments.set(point.momentId, { point, index });
+      if (point.generated === true || point.stopId !== undefined || point.role !== "through") errors.push(`${pointLabel}.momentId must anchor an authored interior through-point.`);
+    }
+    const extended = point.time !== undefined || point.incoming !== undefined || point.outgoing !== undefined || point.momentId !== undefined || point.generated !== undefined;
+    if (extended && curve.kind !== "catmull-rom") errors.push(`${pointLabel} geometry/timing extensions require catmull-rom.`);
+    if ((point.incoming !== undefined || point.outgoing !== undefined) && !explicit) errors.push(`${pointLabel} cubic offsets require explicit geometry times.`);
+    if (curve.kind === "catmull-rom" && explicit) {
+      const previous = points[index - 1];
+      if (!normalizedParameter(point.time) || (index === 0 && point.time !== 0)
+        || (index > 0 && object(previous) && typeof previous.time === "number" && point.time <= previous.time)
+        || (index === points.length - 1 && (curve.closed === true ? point.time >= 1 : point.time !== 1))) {
+        errors.push(`${pointLabel}.time must form strictly increasing geometry parameters from 0 to ${curve.closed === true ? "less than 1" : "1"}.`);
+      }
+    }
+  });
+  const mapped = curve.timing !== undefined || curve.timingVersion !== undefined;
+  if (!mapped) return;
+  if (curve.kind !== "catmull-rom" || curve.timingVersion !== 1 || !Array.isArray(curve.timing)) {
+    errors.push(`${label} timing requires catmull-rom, timingVersion 1, and a timing array.`);
+    return;
+  }
+  const timing = curve.timing;
+  if (timing.length > points.length) { errors.push(`${label}.timing cannot contain more anchors than points.`); return; }
+  const ids = new Set<string>();
+  timing.forEach((anchor, index) => {
+    const anchorLabel = `${label}.timing[${index}]`;
+    if (!object(anchor)) { errors.push(`${anchorLabel} must be an anchor object.`); return; }
+    if (typeof anchor.id !== "string" || !anchor.id.trim()) errors.push(`${anchorLabel}.id must be a non-empty string.`);
+    else { if (ids.has(anchor.id)) errors.push(`${label}.timing contains duplicate id "${anchor.id}".`); ids.add(anchor.id); }
+    for (const field of ["time", "parameter"] as const) {
+      const previous = timing[index - 1];
+      if (!normalizedParameter(anchor[field]) || anchor[field] <= 0 || anchor[field] >= 1
+        || (object(previous) && typeof previous[field] === "number" && anchor[field] <= previous[field])) errors.push(`${anchorLabel}.${field} must be strictly increasing and strictly between 0 and 1.`);
+    }
+    const entry = typeof anchor.id === "string" ? moments.get(anchor.id) : undefined;
+    const point = entry?.point;
+    const parameter = point?.time ?? (entry?.index ?? -1) / (curve.closed === true ? points.length : points.length - 1);
+    if (!point || typeof anchor.parameter !== "number" || Math.abs(anchor.parameter - Number(parameter)) > 1e-9) errors.push(`${anchorLabel}.parameter must match the geometry parameter of its momentId point.`);
+  });
+  for (const id of moments.keys()) if (!ids.has(id)) errors.push(`${label}.timing is missing saved-view anchor "${id}".`);
+}
+
+/** A saved view is one clock anchor shared across independent geometry maps. */
+function validateNavigationViewPairs(segment: Record<string, unknown>, label: string, errors: string[]) {
+  const camera = object(segment.camera) ? segment.camera : undefined;
+  const aim = object(segment.aim) && segment.aim.kind === "curve" && object(segment.aim.curve) ? segment.aim.curve : undefined;
+  const maps = [camera, aim];
+  // Legacy curves and empty maps have no paired clock constraints.
+  if (!maps.some(curve => Array.isArray(curve?.timing) && curve.timing.length > 0)) return;
+  if (!maps.every(curve => curve?.timingVersion === 1 && Array.isArray(curve.timing))) {
+    errors.push(`${label} saved views require version 1 timing maps on both camera and aim curves.`); return;
+  }
+  const cameraAnchors = camera!.timing as unknown[];
+  const aimAnchors = aim!.timing as unknown[];
+  const pointNames = (curve: Record<string, unknown>) => new Map((Array.isArray(curve.points) ? curve.points : []).filter(object).map(point => [point.momentId, point.momentName]));
+  const cameraNames = pointNames(camera!), aimNames = pointNames(aim!);
+  if (cameraAnchors.length !== aimAnchors.length) errors.push(`${label} camera and aim must contain the same saved-view anchors.`);
+  cameraAnchors.forEach((anchor, index) => {
+    const other = aimAnchors[index];
+    if (!object(anchor) || !object(other) || anchor.id !== other.id || anchor.time !== other.time) errors.push(`${label} camera and aim saved-view ids and playback times must match in order.`);
+    if (!object(anchor)) return;
+    if (cameraNames.get(anchor.id) !== aimNames.get(anchor.id)) errors.push(`${label} paired saved-view names must match.`);
+  });
+}
+
 function validateCurve(curve: unknown, label: string, stopIds: Set<string>, errors: string[]) {
   if (!object(curve) || typeof curve.kind !== "string") {
     errors.push(`${label} must be a curve object.`);
@@ -192,6 +281,7 @@ function validateCurve(curve: unknown, label: string, stopIds: Set<string>, erro
     return 0;
   }
   if (curve.kind === "sampled") {
+    validateNavigationTiming(curve, label, errors);
     if (!Array.isArray(curve.samples) || curve.samples.length < 2 || curve.samples.some((sample) => !finiteVec3(sample))) {
       errors.push(`${label}.samples must contain at least two finite XYZ positions.`);
       return 0;
@@ -203,6 +293,7 @@ function validateCurve(curve: unknown, label: string, stopIds: Set<string>, erro
     return 0;
   }
   const required = curve.kind === "line" ? 2 : curve.kind === "quadratic-bezier" ? 3 : curve.kind === "cubic-bezier" ? 4 : 2;
+  validateNavigationTiming(curve, label, errors);
   if (curve.points.length < required || (curve.kind !== "catmull-rom" && curve.points.length !== required)) {
     errors.push(`${label} has the wrong number of authored points for ${curve.kind}.`);
   }
@@ -263,6 +354,7 @@ function validateNavigationSequence(sequence: unknown, index: number, errors: st
     if (typeof segment.id !== "string" || !segment.id.trim()) errors.push(`${segmentLabel}.id must be a non-empty string.`);
     else if (segmentIds.has(segment.id)) errors.push(`${label} contains duplicate segment id "${segment.id}".`);
     else segmentIds.add(segment.id);
+    optionalNavigationName(segment.name, `${segmentLabel}.name`, errors);
     if (typeof segment.fromStopId !== "string" || !stopIds.has(segment.fromStopId)) errors.push(`${segmentLabel}.fromStopId does not reference a sequence stop.`);
     if (typeof segment.toStopId !== "string" || !stopIds.has(segment.toStopId)) errors.push(`${segmentLabel}.toStopId does not reference a sequence stop.`);
     if (typeof segment.weight !== "number" || !Number.isFinite(segment.weight) || segment.weight <= 0) errors.push(`${segmentLabel}.weight must be greater than zero.`);
@@ -276,6 +368,7 @@ function validateNavigationSequence(sequence: unknown, index: number, errors: st
       if (segment.aim.maximumPitchRatio !== undefined && (typeof segment.aim.maximumPitchRatio !== "number" || !Number.isFinite(segment.aim.maximumPitchRatio) || segment.aim.maximumPitchRatio < 0)) errors.push(`${segmentLabel}.aim.maximumPitchRatio must be zero or greater.`);
       if (segment.aim.turnFraction !== undefined && (typeof segment.aim.turnFraction !== "number" || !Number.isFinite(segment.aim.turnFraction) || segment.aim.turnFraction < 0 || segment.aim.turnFraction > 0.5)) errors.push(`${segmentLabel}.aim.turnFraction must be between zero and 0.5.`);
     } else if (!["curve", "fixed-target"].includes(segment.aim.kind)) errors.push(`${segmentLabel}.aim.kind is not supported.`);
+    validateNavigationViewPairs(segment, segmentLabel, errors);
   });
   return { stops: stops.length, segments: segments.length, points };
 }

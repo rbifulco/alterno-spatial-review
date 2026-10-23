@@ -1,5 +1,6 @@
-import { SPATIAL_REVIEW_BUNDLE_SCHEMA, SPATIAL_REVIEW_DISCOVERY_PATH, SPATIAL_REVIEW_DISCOVERY_SCHEMA } from "./constants.js";
+import { SPATIAL_REVIEW_BUNDLE_SCHEMA, SPATIAL_REVIEW_DISCOVERY_PATH, SPATIAL_REVIEW_DISCOVERY_SCHEMA, SPATIAL_REVIEW_PREPARED_PACKAGE_CAPABILITY } from "./constants.js";
 import type { SpatialReviewBundle, SpatialReviewDiscovery, SpatialReviewEditorOriginPolicy } from "./types.js";
+import { normalizePreparedReviewManifest } from "./prepared-package.js";
 
 function record(value: unknown, label: string) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${label} must be a JSON object.`);
@@ -132,6 +133,12 @@ export function normalizeSpatialReviewDiscovery(payload: unknown, discoveryUrl: 
           : { editorOriginPolicy: normalizeSpatialReviewEditorOriginPolicy(liveCapture.editorOriginPolicy) },
       };
     } else capabilities = {};
+    if (advertised.preparedPackage !== undefined) {
+      const prepared = record(advertised.preparedPackage, "capabilities.preparedPackage");
+      if (prepared.capability !== SPATIAL_REVIEW_PREPARED_PACKAGE_CAPABILITY) throw new Error(`preparedPackage.capability must be ${SPATIAL_REVIEW_PREPARED_PACKAGE_CAPABILITY}.`);
+      if (typeof prepared.manifest !== "string" || !prepared.manifest.trim()) throw new Error("preparedPackage.manifest must be a URL string.");
+      capabilities.preparedPackage = { capability: SPATIAL_REVIEW_PREPARED_PACKAGE_CAPABILITY, manifest: webUrl(prepared.manifest, normalizedDiscoveryUrl, "preparedPackage.manifest") };
+    }
   }
   const result: SpatialReviewDiscovery = {
     schema: SPATIAL_REVIEW_DISCOVERY_SCHEMA,
@@ -143,7 +150,7 @@ export function normalizeSpatialReviewDiscovery(payload: unknown, discoveryUrl: 
     liveCapture: optionalUrl(value.liveCapture, normalizedDiscoveryUrl, "liveCapture"),
     ...(capabilities === undefined ? {} : { capabilities }),
   };
-  if (!result.scene && !result.assets && !result.liveCapture) throw new Error("The website advertises no scene, asset, or live-capture transport.");
+  if (!result.scene && !result.assets && !result.liveCapture && !result.capabilities?.preparedPackage) throw new Error("The website advertises no scene, asset, live-capture, or prepared-package transport.");
   if (result.capabilities?.liveCapture?.editorOriginPolicy && !result.liveCapture) throw new Error("editorOriginPolicy requires an advertised liveCapture URL.");
   return result;
 }
@@ -152,6 +159,13 @@ export function normalizeSpatialReviewBundle(payload: unknown): SpatialReviewBun
   const value = record(payload, "Spatial Review connection response");
   if (value.schema !== SPATIAL_REVIEW_BUNDLE_SCHEMA) throw new Error(typeof value.error === "string" ? value.error : "Unsupported connection response.");
   if (typeof value.discoveryUrl !== "string" || typeof value.websiteUrl !== "string") throw new Error("The connection response is missing its website URLs.");
+  let prepared: SpatialReviewBundle["prepared"];
+  if (value.prepared !== undefined) {
+    const capture = record(value.prepared, "prepared");
+    if (typeof capture.manifestUrl !== "string") throw new Error("prepared.manifestUrl must be a URL string.");
+    const manifestUrl = webUrl(capture.manifestUrl, value.discoveryUrl, "prepared.manifestUrl");
+    prepared = { manifestUrl, manifest: normalizePreparedReviewManifest(capture.manifest, manifestUrl) };
+  }
   return {
     schema: SPATIAL_REVIEW_BUNDLE_SCHEMA,
     websiteUrl: webUrl(value.websiteUrl, value.discoveryUrl, "websiteUrl"),
@@ -159,5 +173,6 @@ export function normalizeSpatialReviewBundle(payload: unknown): SpatialReviewBun
     discovery: normalizeSpatialReviewDiscovery(value.discovery, value.discoveryUrl),
     scene: value.scene,
     assets: value.assets,
+    ...(prepared === undefined ? {} : { prepared }),
   };
 }
