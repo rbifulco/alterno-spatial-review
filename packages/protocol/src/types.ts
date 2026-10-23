@@ -17,7 +17,9 @@ import type {
   SPATIAL_REVIEW_ASSET_PROGRESS,
   SPATIAL_REVIEW_ASSET_STREAM_CAPABILITY,
   SPATIAL_REVIEW_SOURCE_STATUS,
+  SPATIAL_REVIEW_PREPARED_PACKAGE_CAPABILITY,
 } from "./constants.js";
+import type { PreparedReviewManifest } from "./prepared-package.js";
 
 export type Vec2 = [number, number];
 export type Vec3 = [number, number, number];
@@ -215,9 +217,11 @@ export type SpatialReviewEditorOriginPolicy =
   | { mode: "any"; origins?: never; /** Allows different ports only when both peers are loopback. */ allowLoopbackPeers?: boolean };
 export type SpatialReviewDiscoveryCapabilities = {
   liveCapture?: { editorOriginPolicy?: SpatialReviewEditorOriginPolicy };
+  /** Preferred immutable capture; liveCapture remains available to older consumers. */
+  preparedPackage?: { capability: typeof SPATIAL_REVIEW_PREPARED_PACKAGE_CAPABILITY; manifest: string };
 };
 export type SpatialReviewDiscovery = { schema: typeof SPATIAL_REVIEW_DISCOVERY_SCHEMA; version: 1; name: string; websiteUrl: string; scene?: string; assets?: string; liveCapture?: string; capabilities?: SpatialReviewDiscoveryCapabilities };
-export type SpatialReviewBundle = { schema: typeof SPATIAL_REVIEW_BUNDLE_SCHEMA; websiteUrl: string; discoveryUrl: string; discovery: SpatialReviewDiscovery; scene?: unknown; assets?: unknown };
+export type SpatialReviewBundle = { schema: typeof SPATIAL_REVIEW_BUNDLE_SCHEMA; websiteUrl: string; discoveryUrl: string; discovery: SpatialReviewDiscovery; scene?: unknown; assets?: unknown; prepared?: { manifestUrl: string; manifest: PreparedReviewManifest } };
 
 export type SpatialReviewDiscoveryRequestMessage = {
   type: typeof SPATIAL_REVIEW_DISCOVERY_REQUEST;

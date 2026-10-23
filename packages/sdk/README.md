@@ -3,6 +3,28 @@
 Register semantic Three.js roots and expose them to compatible review tools.
 The editor receives only explicitly registered objects.
 
+## Prepared packages
+
+`exportPreparedReviewPackage(registry, options)` exports the same canonical
+registry used by live capture into a small manifest, metadata catalog,
+deduplicated aligned numeric chunks and captured texture files. It requests
+complete detailed representations and rejects missing resources or changing
+source revisions. Options require `websiteUrl`, `sourceRevision`, and explicit
+`fidelity` for geometry/materials with limitations; optional capture identity,
+timestamp, cancellation and progress callbacks are supported.
+
+The result is `{ manifest, files, stats }`. Each file has `path`, `contentType`
+and `bytes: Uint8Array`. Write these files through your build/capture harness,
+publish them beside the matching source revision, advertise
+`capabilities.preparedPackage`, validate, then share the ordinary editor URL.
+Browser-dependent source generation can export from its settled existing
+registry; it does not need a second scene or a rewritten serializer.
+
+See [the workflow and binary contract](../../docs/prepared-review-packages.md).
+Source runtime startup and export work happen before sharing and must be
+measured separately from editor first opening. Capture adapter limitations,
+including custom shader approximations, remain explicit.
+
 ## Scene ownership
 
 Use `registerAssembly()` for explicit transform-only place/room owners and

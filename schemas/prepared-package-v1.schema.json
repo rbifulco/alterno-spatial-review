@@ -1,0 +1,178 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.alterno.dev/spatial-review/prepared-package/v1",
+  "title": "Prepared Spatial Review package",
+  "type": "object",
+  "required": [
+    "schema",
+    "version",
+    "buildId",
+    "captureId",
+    "capturedAt",
+    "source",
+    "fidelity",
+    "profile",
+    "catalog",
+    "resources"
+  ],
+  "properties": {
+    "schema": {
+      "const": "prepared-review-package/v1"
+    },
+    "version": {
+      "const": 1
+    },
+    "buildId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "captureId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "capturedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "profile": {
+      "const": "review"
+    },
+    "source": {
+      "type": "object",
+      "required": [
+        "websiteUrl",
+        "revision",
+        "generator"
+      ],
+      "properties": {
+        "websiteUrl": {
+          "type": "string",
+          "format": "uri"
+        },
+        "revision": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "generator": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "captureUrl": {
+          "type": "string",
+          "format": "uri"
+        }
+      },
+      "additionalProperties": true
+    },
+    "fidelity": {
+      "type": "object",
+      "required": [
+        "geometry",
+        "materials",
+        "limitations"
+      ],
+      "properties": {
+        "geometry": {
+          "enum": [
+            "source",
+            "approximate",
+            "proxy"
+          ]
+        },
+        "materials": {
+          "enum": [
+            "source",
+            "approximate",
+            "proxy"
+          ]
+        },
+        "limitations": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "catalog": {
+      "$ref": "#/$defs/document"
+    },
+    "resources": {
+      "type": "array",
+      "maxItems": 16384,
+      "items": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/document"
+          },
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "kind",
+              "contentType"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^(buffer|texture):sha256:[a-f0-9]{64}$"
+              },
+              "kind": {
+                "enum": [
+                  "buffer",
+                  "texture"
+                ]
+              },
+              "contentType": {
+                "enum": [
+                  "application/octet-stream",
+                  "image/png",
+                  "image/jpeg",
+                  "image/webp",
+                  "image/gif",
+                  "image/avif"
+                ]
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "document": {
+      "type": "object",
+      "required": [
+        "url",
+        "byteLength",
+        "sha256"
+      ],
+      "properties": {
+        "url": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "byteLength": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 67108864
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "$comment": "The runtime normalizer additionally enforces credential-free HTTP(S), same-package-origin resource URLs, unique content-addressed IDs/URLs, a 24 MiB catalog and a 256 MiB aggregate budget. Verify lengths and SHA-256 before decoding.",
+  "additionalProperties": true
+}

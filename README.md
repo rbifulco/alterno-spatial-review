@@ -16,6 +16,11 @@ agent working on the site.
 The author and agent choose the scope together. A review can contain one object,
 one camera move, a room, or an entire website.
 
+For sites with expensive runtime generation, [prepare a review package](docs/prepared-review-packages.md)
+from the canonical registry before sharing the editor URL. The package preserves
+source identity, hierarchy, navigation and explicit capture fidelity while
+letting all three workspaces load without running the source website again.
+
 **[Open the editor](https://spatial-review.alterno.dev/)** ·
 **[Install with an AI agent](#-install-with-an-ai-agent)** ·
 **[Install manually](docs/installation.md)** ·

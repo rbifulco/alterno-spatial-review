@@ -1,5 +1,33 @@
 # @alterno-dev/spatial-review-cli
 
+## 0.8.0
+
+### Minor Changes
+
+- 2be5be7: Formalize on-curve geometry, named handles and transitions, and synchronized
+  saved-view timing maps. Validate geometry parameters and cross-track timing
+  consistency while preserving legacy navigation definitions. Document the
+  feedback-to-source workflow and mixed-version compatibility. Registration
+  preserves the extended data; site camera runtimes are not migrated automatically.
+- Add prepared review packages so editors can load a canonical captured site view
+  without executing its source runtime. Publish source/build/capture identity and
+  fidelity metadata, SHA-256-verified catalogs, aligned deduplicated numeric chunks
+  and captured texture bytes through an additive discovery capability.
+
+  Export complete settled registries with the SDK, prepare packages from local
+  capture modules or canonical JSON with the CLI, and validate advertised package
+  contents before sharing. Existing live integrations remain compatible. Sites
+  must publish and advertise a prepared package to enable the faster loading path;
+  source capture work occurs before sharing and existing shader limitations remain.
+
+### Patch Changes
+
+- Updated dependencies [2be5be7]
+- Updated dependencies
+  - @alterno-dev/spatial-review-protocol@0.8.0
+  - @alterno-dev/spatial-review-validator@0.8.0
+  - @alterno-dev/spatial-review@0.8.0
+
 ## 0.7.0
 
 ### Minor Changes

@@ -21,3 +21,4 @@ export { assetFromObject3DRoots, type Object3DAssetOptions } from "./serializer.
 export * from "@alterno-dev/spatial-review-protocol";
 export * from "./runtime.js";
 export { prepareAssetTransfer, type PrepareAssetTransferOptions } from "./geometry-transfer.js";
+export { exportPreparedReviewPackage, type PreparedReviewRegistry, type ExportPreparedReviewOptions, type ExportPreparedReviewResult } from "./prepared-package.js";

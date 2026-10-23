@@ -3,6 +3,22 @@
 Versioned, engine-neutral TypeScript contracts and URL normalization for
 Alterno Spatial Review.
 
+## Prepared capture transport
+
+The additive `prepared-review-package-v1` capability advertises a manifest URL
+at `capabilities.preparedPackage`. A discovery document may advertise only this
+transport, or retain legacy transports for older consumers. New consumers
+prefer the package and report package failures explicitly.
+
+`normalizePreparedReviewManifest`, `encodePreparedReviewPackage`, and
+`decodePreparedReviewCatalog` define a versioned, content-addressed capture with
+explicit source/build/capture identity and fidelity. Numeric data uses shared,
+aligned little-endian chunks rather than JSON arrays or one file per attribute.
+The codec does not upgrade source fidelity or replace canonical index validation.
+
+See [the complete contract and publishing workflow](../../docs/prepared-review-packages.md)
+and the prepared manifest/catalog schemas in `schemas/`.
+
 ## Navigation shape and saved views
 
 Schema validity does not guarantee receiver acceptance. The current editor caps
