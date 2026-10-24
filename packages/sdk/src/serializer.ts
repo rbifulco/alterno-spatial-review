@@ -38,12 +38,12 @@ function materialMaps(material: THREE.Material, onTexture?: (resourceId: string,
   });
 }
 
-function serializeMaterial(material: THREE.Material, id: string, index: number, maps: boolean, onTexture?: (resourceId: string, texture: THREE.Texture) => void): AssetMaterial {
+function serializeMaterial(material: THREE.Material, id: string, index: number, onTexture?: (resourceId: string, texture: THREE.Texture) => void): AssetMaterial {
   const value = material as THREE.MeshStandardMaterial;
-  return { id, name: material.name || `${material.type.replace(/Material$/, "")} ${index + 1}`, type: material.type.includes("Basic") ? "basic" : material.type.includes("Phong") ? "phong" : material.type.includes("Standard") ? "standard" : "unknown", color: hex(value.color), emissive: value.emissive ? hex(value.emissive, "#000000") : undefined, roughness: typeof value.roughness === "number" ? value.roughness : undefined, metalness: typeof value.metalness === "number" ? value.metalness : undefined, opacity: material.opacity, doubleSided: material.side === THREE.DoubleSide, wireframe: "wireframe" in material ? Boolean((material as THREE.MeshBasicMaterial).wireframe) : false, maps: maps ? materialMaps(material, onTexture) : undefined };
+  return { id, name: material.name || `${material.type.replace(/Material$/, "")} ${index + 1}`, type: material.type.includes("Basic") ? "basic" : material.type.includes("Phong") ? "phong" : material.type.includes("Standard") ? "standard" : "unknown", color: hex(value.color), vertexColors: value.vertexColors, transparent: material.transparent, emissive: value.emissive ? hex(value.emissive, "#000000") : undefined, roughness: typeof value.roughness === "number" ? value.roughness : undefined, metalness: typeof value.metalness === "number" ? value.metalness : undefined, opacity: material.opacity, doubleSided: material.side === THREE.DoubleSide, wireframe: "wireframe" in material ? Boolean((material as THREE.MeshBasicMaterial).wireframe) : false, maps: materialMaps(material, onTexture) };
 }
 
-function serializeGeometry(geometry: THREE.BufferGeometry, surface: boolean, compact = false): AssetGeometry | undefined {
+function serializeGeometry(geometry: THREE.BufferGeometry, includeNormals: boolean, compact = false): AssetGeometry | undefined {
   const positions = attributeArray(geometry.getAttribute("position"), compact);
   if (!positions?.length) return undefined;
   const indices = geometry.index ? compact
@@ -58,7 +58,7 @@ function serializeGeometry(geometry: THREE.BufferGeometry, surface: boolean, com
       || materialIndex >= SPATIAL_REVIEW_MAX_NODE_MATERIAL_IDS) throw new RangeError("Geometry groups must reference bounded draw ranges and material slots.");
     return { start: group.start, count: group.count, materialIndex };
   }) : undefined;
-  return { kind: "mesh", positions, indices, normals: surface ? attributeArray(geometry.getAttribute("normal"), compact) : undefined, uvs: surface ? attributeArray(geometry.getAttribute("uv"), compact) : undefined, groups };
+  return { kind: "mesh", positions, indices, normals: includeNormals ? attributeArray(geometry.getAttribute("normal"), compact) : undefined, uvs: attributeArray(geometry.getAttribute("uv"), compact), colors: attributeArray(geometry.getAttribute("color"), compact), groups };
 }
 
 function matrixTransform(matrix: THREE.Matrix4) {
@@ -80,12 +80,12 @@ export function assetFromObject3DRoots(roots: THREE.Object3D[], label: string, s
   const materialIds = new Map<THREE.Material, string>(); const geometryIds = new Map<THREE.BufferGeometry, string>();
   const materials: AssetMaterial[] = []; const geometries: AssetGeometryDefinition[] = [];
   const nodes: AssetNode[] = [{ id: `${assetId}-root`, name: label.replace(/\.[^.]+$/, ""), type: "group", position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1], visible: true, materialIds: [], sourceRef }];
-  const sourceMatrix = roots[0].matrixWorld.clone(); const inverse = sourceMatrix.clone().invert(); const surface = options.profile !== "scene";
+  const sourceMatrix = roots[0].matrixWorld.clone(); const inverse = sourceMatrix.clone().invert(); const includeNormals = options.profile !== "scene";
   let geometryGroupCount = 0;
-  const materialIdFor = (material: THREE.Material) => { const found = materialIds.get(material); if (found) return found; const index = materials.length; const id = `${assetId}-material-${slugify(material.name || material.type, "surface")}-${index + 1}`; materialIds.set(material, id); materials.push(serializeMaterial(material, id, index, surface, options.onTexture)); return id; };
+  const materialIdFor = (material: THREE.Material) => { const found = materialIds.get(material); if (found) return found; const index = materials.length; const id = `${assetId}-material-${slugify(material.name || material.type, "surface")}-${index + 1}`; materialIds.set(material, id); materials.push(serializeMaterial(material, id, index, options.onTexture)); return id; };
   const geometryIdFor = (geometry: THREE.BufferGeometry) => {
     const found = geometryIds.get(geometry); if (found) return found;
-    const value = serializeGeometry(geometry, surface, options.geometryEncoding === "typed"); if (!value) return undefined;
+    const value = serializeGeometry(geometry, includeNormals, options.geometryEncoding === "typed"); if (!value) return undefined;
     geometryGroupCount += value.kind === "mesh" ? value.groups?.length ?? 0 : 0;
     if (geometryGroupCount > SPATIAL_REVIEW_MAX_ASSET_GEOMETRY_GROUPS) throw new RangeError(`Asset geometry groups are limited to ${SPATIAL_REVIEW_MAX_ASSET_GEOMETRY_GROUPS} entries.`);
     const id = `${assetId}-geometry-${slugify(geometry.name || geometry.type, "mesh")}-${geometries.length + 1}`;

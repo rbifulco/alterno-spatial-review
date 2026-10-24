@@ -143,7 +143,7 @@ function typedGeometry(geometry: AssetGeometry): AssetGeometry {
   const floats = (value: number[] | Float32Array | undefined) => value === undefined || value instanceof Float32Array ? value : new Float32Array(value);
   const indices = geometry.indices;
   if (indices && !indices.every((index) => Number.isSafeInteger(index) && index >= 0 && index < geometry.positions.length / 3)) throw new Error("Prepared geometry contains an invalid index.");
-  return { ...geometry, positions: floats(geometry.positions)!, normals: floats(geometry.normals), uvs: floats(geometry.uvs),
+  return { ...geometry, positions: floats(geometry.positions)!, normals: floats(geometry.normals), uvs: floats(geometry.uvs), colors: floats(geometry.colors),
     indices: indices === undefined || !Array.isArray(indices) ? indices : geometry.positions.length / 3 <= 65_535 ? new Uint16Array(indices) : new Uint32Array(indices) };
 }
 

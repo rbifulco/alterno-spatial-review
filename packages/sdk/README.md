@@ -329,3 +329,25 @@ registry.registerNavigationSequence({
   }],
 });
 ```
+
+### Vertex colours
+
+Mesh geometry can carry linear RGB or RGBA `colors`, with three or four finite
+channels per vertex. Materials opt in with `vertexColors: true`, preserving the
+source material's choice; an attribute used only as a custom shader mask is not
+implicitly enabled. The Three.js adapter reads normalized integer and interleaved
+attributes through their accessors and exports linear Float32 values. Colours
+remain present in both scene and review profiles, owned live transfers and
+prepared packages. RGB adds 12 bytes per unique vertex; RGBA adds 16. Shared
+geometry remains shared across placements. Existing consumers can ignore the
+optional fields; use an updated consumer to see vertex colours.
+
+The updated `scene` profile also retains UVs and supported texture maps, while
+omitting supplied normals for consumer reconstruction. `review` keeps supplied
+normals too. UVs add 8 bytes per unique vertex. Textures have separate transfer,
+decoded-image, and GPU costs. Preserve shared source resources and regenerate
+older captures/packages after upgrading; a consumer cannot recover fields that
+an older producer omitted. `transparent` preserves authored blending, including
+RGBA vertex alpha. See the
+[agent material guidance](../../agents/structuring-for-review.md#preserve-material-and-geometry-evidence)
+for shader-mask handling, profile choices, and appearance checks.

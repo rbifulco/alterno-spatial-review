@@ -219,6 +219,11 @@ export function makeAssetGeometry(geometry: AssetGeometry) {
     result.computeVertexNormals();
   }
   if (geometry.uvs?.length) result.setAttribute("uv", new THREE.BufferAttribute(geometry.uvs instanceof Float32Array ? geometry.uvs : new Float32Array(geometry.uvs), 2));
+  if (geometry.colors) {
+    const channels = geometry.colors.length / (geometry.positions.length / 3);
+    if ((channels !== 3 && channels !== 4) || !geometry.colors.every(Number.isFinite)) throw new TypeError("Vertex colors must contain finite RGB or RGBA channels per vertex.");
+    result.setAttribute("color", new THREE.BufferAttribute(geometry.colors instanceof Float32Array ? geometry.colors : new Float32Array(geometry.colors), channels));
+  }
   geometry.groups?.forEach((group) => result.addGroup(group.start, group.count, group.materialIndex));
   result.computeBoundingBox();
   result.computeBoundingSphere();
@@ -245,7 +250,7 @@ function materialsForNodes(asset: ReviewAsset3D) {
 function materialForMode(material: AssetMaterial | undefined, mode: AssetViewMode, line = false) {
   const color = material?.color ?? "#8d8d88";
   const opacity = material?.opacity ?? 1;
-  if (line) return new THREE.LineBasicMaterial({ color, transparent: opacity < 1, opacity });
+  if (line) return new THREE.LineBasicMaterial({ color, vertexColors: material?.vertexColors === true, transparent: material?.transparent ?? opacity < 1, opacity });
   if (mode === "normals") return new THREE.MeshNormalMaterial({ side: THREE.DoubleSide });
   if (mode === "wireframe") {
     return new THREE.MeshBasicMaterial({ color: "#9ed7c2", wireframe: true, transparent: true, opacity: 0.9 });
@@ -253,18 +258,20 @@ function materialForMode(material: AssetMaterial | undefined, mode: AssetViewMod
   if (mode === "unlit") {
     return new THREE.MeshBasicMaterial({
       color,
+      vertexColors: material?.vertexColors === true,
       side: material?.doubleSided ? THREE.DoubleSide : THREE.FrontSide,
-      transparent: opacity < 1,
+      transparent: material?.transparent ?? opacity < 1,
       opacity,
       toneMapped: false,
     });
   }
   return new THREE.MeshStandardMaterial({
     color,
+    vertexColors: material?.vertexColors === true,
     emissive: material?.emissive ?? "#000000",
     roughness: material?.roughness ?? 0.82,
     metalness: material?.metalness ?? 0,
-    transparent: mode === "xray" || opacity < 1,
+    transparent: mode === "xray" || (material?.transparent ?? opacity < 1),
     opacity: mode === "xray" ? 0.26 : opacity,
     depthWrite: mode !== "xray",
     side: material?.doubleSided || mode === "xray" ? THREE.DoubleSide : THREE.FrontSide,
@@ -281,7 +288,7 @@ function createNodeObject(node: AssetNode, asset: ReviewAsset3D, mode: AssetView
   const materialLeases = (node.type === "line" || node.type === "points" ? [materials[0]] : materials.length ? materials : [undefined])
     .map((material) => resources.materials.acquire(material ?? defaultMaterialSource, `${mode}:${node.type}`, () =>
       node.type === "points"
-        ? new THREE.PointsMaterial({ color: material?.color ?? "#a6b6b0", size: 0.035 })
+        ? new THREE.PointsMaterial({ color: material?.color ?? "#a6b6b0", vertexColors: material?.vertexColors === true, size: 0.035 })
         : materialForMode(material, mode, node.type === "line")));
   const meshMaterials = materialLeases.map((lease) => lease.value);
   const owned = <T extends THREE.Object3D>(object: T) => {

@@ -84,7 +84,7 @@ export class SceneGraphCache {
     const materialKey = materials.map((material) => {
       const m = material as THREE.MeshStandardMaterial;
       const textures = [m.map,m.normalMap,m.bumpMap,m.roughnessMap,m.metalnessMap,m.aoMap,m.emissiveMap,m.alphaMap].map(texture => texture ? `${texture.uuid}:${texture.version}:${texture.repeat.toArray()}:${texture.offset.toArray()}:${texture.rotation}:${texture.wrapS}:${texture.wrapT}:${texture.flipY}` : "").join(";");
-      return `${textures}/${m.uuid}:${m.version}:${m.color?.getHex()}:${m.emissive?.getHex()}:${m.opacity}:${m.roughness}:${m.metalness}:${m.side}:${m.wireframe}`;
+      return `${textures}/${m.uuid}:${m.version}:${m.color?.getHex()}:${m.emissive?.getHex()}:${m.opacity}:${m.roughness}:${m.metalness}:${m.side}:${m.wireframe}:${m.vertexColors}`;
     }).join("|");
     const instances = object instanceof THREE.InstancedMesh ? `${object.count}:${object.instanceMatrix.version}` : "";
     const children = object.children.map((child) => this.inspect(child).revision);

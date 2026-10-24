@@ -266,6 +266,17 @@ before the website resolves its package exports.
 Start the website with its existing development command. Record the ordinary
 page URL and capture URL in the integration plan.
 
+For an appearance-related upgrade, confirm that both the selected SDK and the
+intended editor support vertex colors and textured Scene rendering. Older
+captures may have discarded color attributes or Scene UVs and maps; upgrading
+the editor cannot recover missing data. Regenerate live captures and prepared
+packages from source, and change the build ID or representation revision.
+Check release notes for the selected package; guidance in a source checkout can
+describe changes that have not yet been published.
+Follow the [material guidance](structuring-for-review.md#preserve-material-and-geometry-evidence)
+for visible colors, shader masks, and export profiles. Do not enable
+`vertexColors` on every material just because its geometry has a color attribute.
+
 **Complete when:** the website runs at a known URL and the lockfile resolves the
 selected SDK and Three.js versions reproducibly. Each pre-change test and build
 result passes or is a user-accepted blocked check. Do not use a blocked result
@@ -418,6 +429,7 @@ Run the smallest applicable check set:
 | Runtime isolation | A dedicated capture route keeps registry construction, capture bridging, serialization, and review resources out of the ordinary page. A same-document integration may reuse the website scene and attach the capture bridge when its visual, functional, and performance comparisons pass. |
 | Review connection | Starting with the ordinary website URL, the development editor discovers the capture page and reaches a useful state without an unrelated user interaction. |
 | Representative review | Each exposed editor view opens one representative subject. Its identity and visible result agree with the website or authoritative source. |
+| Appearance upgrade | When colors or textures change, compare one affected subject without selection highlighting. Check visible vertex colors, texture readiness in Scene, and any declared shader approximation. Record the SDK/editor versions and observed resource cost. |
 | Feedback loop | One intended feedback action exports a stable target and a searchable source reference. A refresh preserves unresolved feedback. |
 | Performance screen | When its trigger applies, the ordinary page passes the lightweight screen in `docs/performance-profile.md`. |
 

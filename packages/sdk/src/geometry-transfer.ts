@@ -89,7 +89,7 @@ export function assetTransferBuffers(source: ReviewAsset3D) {
   const collectGeometry = (geometry: AssetGeometry | undefined) => {
     if (!geometry || geometry.kind !== "mesh" || geometries.has(geometry)) return;
     geometries.add(geometry);
-    for (const array of [geometry.positions, geometry.normals, geometry.uvs, geometry.indices]) {
+    for (const array of [geometry.positions, geometry.normals, geometry.uvs, geometry.colors, geometry.indices]) {
       if (array && ArrayBuffer.isView(array)) buffers.add(array.buffer as ArrayBuffer);
     }
   };
@@ -126,9 +126,11 @@ export function prepareAssetTransfer(source: ReviewAsset3D, maxBytes = 64 * 1024
   const check = (geometry: AssetGeometry | undefined) => {
     if (!geometry || geometry.kind !== "mesh" || seen.has(geometry)) return;
     seen.add(geometry);
+    if (geometry.colors && (![geometry.positions.length, geometry.positions.length / 3 * 4].includes(geometry.colors.length) || !geometry.colors.every(Number.isFinite))) throw new TypeError("Vertex colors must contain finite RGB or RGBA channels per vertex.");
     project(geometry.positions, geometry.positions.length * 4);
     if (geometry.normals) project(geometry.normals, geometry.normals.length * 4);
     if (geometry.uvs) project(geometry.uvs, geometry.uvs.length * 4);
+    if (geometry.colors) project(geometry.colors, geometry.colors.length * 4);
     if (geometry.indices) project(geometry.indices, geometry.indices.length * (geometry.indices instanceof Uint16Array ? 2 : 4));
   };
   source.geometries?.forEach((definition) => check(definition.geometry));
@@ -165,6 +167,7 @@ export function prepareAssetTransfer(source: ReviewAsset3D, maxBytes = 64 * 1024
     geometry.positions = Float32Array.from(geometry.positions);
     if (geometry.normals) geometry.normals = Float32Array.from(geometry.normals);
     if (geometry.uvs) geometry.uvs = Float32Array.from(geometry.uvs);
+    if (geometry.colors) geometry.colors = Float32Array.from(geometry.colors);
     if (geometry.indices) geometry.indices = geometry.indices instanceof Uint16Array ? Uint16Array.from(geometry.indices) : Uint32Array.from(geometry.indices);
   };
   asset.geometries?.forEach((definition) => compact(definition.geometry));

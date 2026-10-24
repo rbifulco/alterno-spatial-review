@@ -468,13 +468,13 @@ export class SceneAssetRegistry {
     this.textureResourceOwnerAssets.clear();
   }
   private estimateBytes(entry: SceneAssetRegistration, profile: SpatialReviewProfile, instanceComponentBytes = 8) {
-    const seen = new Set<THREE.BufferGeometry>(); let bytes = 0; let triangles = 0; let instances = 0;
+    const seen = new Set<THREE.BufferGeometry>(); let bytes = 0; let triangles = 0; let instances = 0; let colors = false;
     entry.roots.forEach((root) => root.traverse((object) => {
       const geometry = (object as THREE.Mesh).geometry;
       if (geometry && !seen.has(geometry)) {
         seen.add(geometry);
-        for (const name of profile === "scene" ? ["position"] : ["position", "normal", "uv"]) {
-          const attribute = geometry.getAttribute(name); if (attribute) bytes += attribute.count * attribute.itemSize * 4;
+        for (const name of profile === "scene" ? ["position", "uv", "color"] : ["position", "normal", "uv", "color"]) {
+          const attribute = geometry.getAttribute(name); if (attribute) { bytes += attribute.count * attribute.itemSize * 4; if (name === "color") colors = true; }
         }
         if (geometry.index) {
           bytes += geometry.index.count * (geometry.getAttribute("position")?.count <= 65535 ? 2 : 4);
@@ -486,7 +486,7 @@ export class SceneAssetRegistry {
         bytes += object.count * 16 * instanceComponentBytes;
       }
     }));
-    return { bytes, triangles, instances };
+    return { bytes, triangles, instances, colors };
   }
   private streamDescriptor(entry: AnySceneAssetRegistration, profile: SpatialReviewProfile): AssetStreamDescriptor {
     if (isDeferred(entry)) return structuredClone(entry.stream);
@@ -502,7 +502,7 @@ export class SceneAssetRegistry {
         estimatedBytes: Math.min(1024 * 1024 * 1024, estimate.bytes),
         triangles: estimate.triangles,
         instances: estimate.instances,
-        attributes: profile === "scene" ? ["position"] : ["position", "normal", "uv"],
+        attributes: [...(profile === "scene" ? ["position" as const, "uv" as const] : ["position" as const, "normal" as const, "uv" as const]), ...(estimate.colors ? ["color" as const] : [])],
       }],
     };
   }
