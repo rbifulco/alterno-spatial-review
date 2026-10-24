@@ -1,5 +1,14 @@
 # @alterno-dev/spatial-review-cli
 
+## 0.9.0
+
+### Patch Changes
+
+- Updated dependencies [9893984]
+  - @alterno-dev/spatial-review-protocol@0.9.0
+  - @alterno-dev/spatial-review@0.9.0
+  - @alterno-dev/spatial-review-validator@0.9.0
+
 ## 0.8.0
 
 ### Minor Changes
