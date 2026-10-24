@@ -115,12 +115,19 @@ path:
 4. The website answers with `alterno:spatial-review:asset-response`, matching
    those identities, and either an asset or a bounded error result.
 
-Positions, normals and UVs accept `Float32Array`; indices accept `Uint16Array`
+Positions, normals, UVs and vertex colors accept `Float32Array`; indices accept `Uint16Array`
 or `Uint32Array`. Legacy `number[]` geometry remains valid. Typed buffers are
 transferred through the browser's structured-clone channel, not encoded as JSON.
 Each response owns its transferable buffers; sending a response must not detach
 the source renderer or a reusable catalog cache. JSON files must represent
 attributes as number arrays.
+
+Mesh `colors` contain three or four finite linear RGB/RGBA channels per vertex.
+They are distinct from per-instance `instanceData.colors`. Materials opt in with
+`vertexColors: true`; missing or false flags leave color shading disabled.
+Optional `transparent` preserves blending for materials including RGBA vertex
+alpha. Older consumers may ignore these optional fields; no new capability is
+negotiated for them. Verify the intended consumer's appearance support.
 
 Receivers must validate the negotiated byte limit, geometry shape, finite
 values, indices, hierarchy and expanded-instance budgets before allocating GPU

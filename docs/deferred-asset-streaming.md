@@ -141,6 +141,15 @@ catalog revision and resets the phase. When a refresh changes multiple
 registrations, stop requests and apply the complete set before the new catalog
 can receive a request.
 
+When a produced representation has vertex colors, add `"color"` to its
+`attributes`. Calculate `estimatedBytes` from the exported float attributes:
+RGB adds 12 bytes per unique vertex and RGBA adds 16, even when the source uses
+normalized integer storage. Include UVs at 8 bytes per vertex when present.
+The updated SDK retains colors, UVs, and supported maps in `scene` exports.
+An overview producer must still supply those attributes if its appearance
+depends on them. Texture response bytes, decoded images, and GPU texture memory
+have separate budgets; `estimatedBytes` describes geometry, not texture memory.
+
 **Complete when:** each descriptor has accurate bounds, immutable revisions,
 and a producer that honors budget and cancellation.
 

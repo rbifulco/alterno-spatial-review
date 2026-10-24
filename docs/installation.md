@@ -130,6 +130,15 @@ for the agent-facing extraction and presentation guide.
 **Complete when:** the capture page registers each listed review subject and starts
 only the bridges approved by the user.
 
+For material appearance, preserve visible vertex colors and the material's
+`vertexColors` setting. Check custom shader masks before treating a color
+attribute as visible RGB. The updated SDK keeps colors, UVs, and supported maps
+in Scene exports; supplied normals are retained by the `review` profile.
+An updated editor is required to display the new fields. Regenerate older
+captures after upgrading. Follow the
+[material and resource guidance](../agents/structuring-for-review.md#preserve-material-and-geometry-evidence),
+then compare one affected subject in Scene and Asset when those views are exposed.
+
 ## 3. Open the hosted editor
 
 Open [Spatial Review](https://spatial-review.alterno.dev/) and paste the website

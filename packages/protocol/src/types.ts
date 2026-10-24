@@ -31,11 +31,11 @@ export type GeometryIndices = number[] | Uint16Array | Uint32Array;
 
 export type AssetGeometry =
   | { kind: "primitive"; primitive: "box" | "sphere" | "cylinder"; dimensions: Vec3; segments?: number }
-  | { kind: "mesh"; positions: GeometryValues; indices?: GeometryIndices; normals?: GeometryValues; uvs?: GeometryValues; groups?: Array<{ start: number; count: number; materialIndex: number }> };
+  | { kind: "mesh"; positions: GeometryValues; indices?: GeometryIndices; normals?: GeometryValues; uvs?: GeometryValues; /** Linear RGB or RGBA, with three or four channels per vertex. */ colors?: GeometryValues; groups?: Array<{ start: number; count: number; materialIndex: number }> };
 
 export type AssetGeometryDefinition = { id: string; name?: string; geometry: AssetGeometry };
 export type AssetTextureMap = { slot: string; name?: string; sourceRef?: string; resourceId?: string; wrap?: "clamp" | "repeat"; repeat?: Vec2; offset?: Vec2; rotation?: number; flipY?: boolean };
-export type AssetMaterial = { id: string; name: string; type: "standard" | "basic" | "phong" | "unknown"; color: string; emissive?: string; roughness?: number; metalness?: number; opacity: number; doubleSided: boolean; wireframe?: boolean; maps?: AssetTextureMap[] };
+export type AssetMaterial = { id: string; name: string; type: "standard" | "basic" | "phong" | "unknown"; color: string; emissive?: string; roughness?: number; metalness?: number; opacity: number; doubleSided: boolean; wireframe?: boolean; vertexColors?: boolean; transparent?: boolean; maps?: AssetTextureMap[] };
 export type AssetInstanceData = {
   encoding: "matrix-f32-v1";
   count: number;

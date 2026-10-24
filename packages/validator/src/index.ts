@@ -443,6 +443,10 @@ function geometryErrors(value: unknown, label: string, budget: AssetValidationBu
     if (!finiteNumberSequence(value.uvs) || (value.uvs as ArrayLike<number>).length !== vertices * 2) errors.push(`${label}.uvs must contain one finite UV pair per vertex.`);
     else { budget.geometryValues += (value.uvs as ArrayLike<number>).length; budget.allocationBytes += (value.uvs as ArrayLike<number>).length * 4; }
   }
+  if (value.colors !== undefined) {
+    if (!finiteNumberSequence(value.colors) || ![vertices * 3, vertices * 4].includes((value.colors as ArrayLike<number>).length)) errors.push(`${label}.colors must contain finite RGB or RGBA channels per vertex.`);
+    else { budget.geometryValues += (value.colors as ArrayLike<number>).length; budget.allocationBytes += (value.colors as ArrayLike<number>).length * 4; }
+  }
   if (value.groups !== undefined) {
     if (!Array.isArray(value.groups)) errors.push(`${label}.groups must be an array when present.`);
     else {
@@ -495,6 +499,8 @@ function materialErrors(value: unknown, label: string) {
   if (typeof value.opacity !== "number" || !Number.isFinite(value.opacity) || value.opacity < 0 || value.opacity > 1) errors.push(`${label}.opacity must be between zero and one.`);
   if (typeof value.doubleSided !== "boolean") errors.push(`${label}.doubleSided must be boolean.`);
   if (value.wireframe !== undefined && typeof value.wireframe !== "boolean") errors.push(`${label}.wireframe must be boolean when present.`);
+  if (value.transparent !== undefined && typeof value.transparent !== "boolean") errors.push(`${label}.transparent must be boolean when present.`);
+  if (value.vertexColors !== undefined && typeof value.vertexColors !== "boolean") errors.push(`${label}.vertexColors must be boolean when present.`);
   if (value.maps !== undefined) {
     if (!Array.isArray(value.maps) || value.maps.length > 32) errors.push(`${label}.maps must contain at most 32 entries.`);
     else value.maps.forEach((map, index) => {

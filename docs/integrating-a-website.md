@@ -229,6 +229,12 @@ a standard installation.
 The negotiated peer limits bound each texture response. `maxResourceBytes` can
 change the producer offer. It cannot raise a lower consumer limit.
 
+The updated Scene renderer uses supported texture maps when the producer supplies
+them. Verify one representative textured subject in Scene as well as Asset when
+both are exposed. Keep shared textures shared and record image dimensions;
+encoded transfer size does not describe decoded-image or GPU texture memory.
+A successful resource ID or catalog response alone does not prove visible maps.
+
 **Complete when:** every decision-relevant texture has a successful direct or
 live result, or an explicit unsupported result. Every retry reaches a terminal
 result.

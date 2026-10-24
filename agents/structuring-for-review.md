@@ -218,7 +218,8 @@ requested review decision:
 - Identify custom shader materials and shader injection.
 - Identify textures stored only in custom uniforms or application metadata.
 - Identify triplanar, world-space, procedural, or non-UV projection.
-- Identify vertex colors or custom attributes that carry essential appearance.
+- Identify whether color attributes contain visible RGB/RGBA or custom shader
+  masks such as wear, dirt, or ambient occlusion.
 - Identify neutral base colors whose visible result comes from another stage.
 - Identify geometry without compatible UVs.
 - Identify texture references without an exportable image source.
@@ -234,6 +235,8 @@ contains only the geometry or component boundary needed for a planned decision.
 | Source condition | Review representation |
 | --- | --- |
 | Supported material and compatible UVs | Export supported material fields and map slots. |
+| Visible vertex colors | Keep the geometry color attribute and the source material's `vertexColors` flag. |
+| Color attribute used as shader masks | Trace how the source shader uses it. Use a capture-only approximation that does not display masks as an RGB tint. |
 | Custom appearance with a declared simple approximation | Use a capture-only material or a review-safe base color. |
 | Optimized rendering removed a planned decision boundary | Use a minimal review-only proxy that restores that boundary. |
 | No faithful or useful approximation exists | Record that appearance review is unsupported. |
@@ -272,14 +275,34 @@ review material. When source roles differ, use separate named materials.
 Call `disposeReviewRepresentation()` during capture teardown. Dispose only
 capture-owned materials.
 
-Use the `scene` profile for composition. It omits supplied normals, UVs, and
-texture maps. A review-safe base color gives a distinguishable and honest
-approximation of the source appearance. Use it for texture-driven materials so
-Scene remains legible.
+The updated serializer preserves linear RGB/RGBA colors in both profiles.
+Three.js materials must opt in with `vertexColors: true`; the presence of a
+`color` attribute alone does not enable shading. The serializer reads normalized
+integer and interleaved attributes through their accessors and exports float
+values. Preserve the source transparency setting when RGBA alpha needs blending.
+Custom shader injection is not reproduced by setting this flag.
 
-Use the `review` profile for Asset detail. Preserve component hierarchy,
-geometry groups, normals, UVs, supported material fields, and supported texture
-slots.
+Use the `scene` profile for composition. It retains colors, UVs, supported
+material fields, and texture maps; it omits supplied normals so the consumer can
+reconstruct them. The `review` profile also preserves supplied normals for Asset
+detail. Both profiles retain component hierarchy and geometry groups. A profile
+does not select an editor view: Scene can render either representation.
+
+Older SDKs omitted colors in both profiles and UVs/maps in the `scene` profile.
+Use an SDK and editor with the updated appearance support, then regenerate the
+capture. Enabling textures in the editor cannot restore maps omitted by a producer.
+For deferred overview geometry, keep the color and UV attributes needed for its
+intended appearance or record the simpler overview as an approximation.
+
+Keep shared geometry and textures shared. Float RGB costs 12 bytes per unique
+vertex; RGBA costs 16. UVs add 8 bytes per vertex. Include these in deferred
+`estimatedBytes` and list `"color"` in `attributes` when present. Texture transfer,
+image decoding, and GPU storage are separate costs: a small compressed image can
+use much more memory after decoding. Measure a representative subject and record
+texture dimensions, loaded maps, and observed memory or timing when available.
+Do not multiply shared resource storage by placement count or infer full-scene
+performance from one asset. Use a declared approximation when the intended
+appearance exceeds the project's resource budget.
 
 Keep an original stable texture source URL in `texture.userData.sourceRef` when
 one exists. This protocol field does not contain a searchable source reference.
